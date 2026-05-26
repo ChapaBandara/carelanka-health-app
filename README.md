@@ -24,24 +24,7 @@ A Flutter/Firebase personal healthcare app designed to help users manage medicat
 ## Project Status
 🚧 **In Progress** — actively being developed as part of academic research
 
-## Screenshots
-UI designs available in the `CareLanka UI/` folder
 
-## Getting Started
-1. Clone the repository
-```bash
-   git clone https://github.com/ChapaBandara/carelanka-health-app.git
-```
-2. Install dependencies
-```bash
-   flutter pub get
-```
-3. Run the app
-```bash
-   flutter run
-```
 
-## Author
-**Chapa Bandara**  
-[LinkedIn](https://linkedin.com/in/chapabandara) | [GitHub](https://github.com/ChapaBandara)
-EOF
+
+
