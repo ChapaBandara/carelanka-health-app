@@ -1,0 +1,3 @@
+class DrugInteractionService {
+  const DrugInteractionService();
+}

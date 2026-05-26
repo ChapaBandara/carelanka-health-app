@@ -1,0 +1,66 @@
+import 'package:carelanka_app/core/firebase/firebase_collections.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class FamilyService {
+  FamilyService({FirebaseFirestore? firestore}) : _firestore = firestore ?? FirebaseFirestore.instance;
+
+  final FirebaseFirestore _firestore;
+
+  CollectionReference<Map<String, dynamic>> get _col =>
+      _firestore.collection(FirebaseCollections.familyProfiles);
+
+  Stream<List<Map<String, String>>> watchFamilyMaps(String ownerId) {
+    return _col.where('ownerId', isEqualTo: ownerId).snapshots().map(
+          (snap) => snap.docs.map(_toUiMap).toList(),
+        );
+  }
+
+  Map<String, String> _toUiMap(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final d = doc.data();
+    final name = d['fullName'] as String? ?? '';
+    final parts = name.trim().split(RegExp(r'\s+'));
+    final initials = parts.isEmpty
+        ? '?'
+        : parts.length == 1
+            ? parts.first[0].toUpperCase()
+            : '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+
+    final hasOwn = d['hasOwnAccount'] == true;
+    final relationship = d['relationship'] as String? ?? '';
+
+    return {
+      'profileId': doc.id,
+      'name': name,
+      'meta': relationship.isNotEmpty ? relationship : (hasOwn ? 'Linked account' : 'Dependent profile'),
+      'initials': initials,
+      'type': hasOwn ? 'linked' : 'dependent',
+      'tag1': '',
+      'tag2': '',
+    };
+  }
+
+  Future<void> addDependentProfile({
+    required String ownerId,
+    required String fullName,
+    required String relationship,
+    DateTime? dateOfBirth,
+    String? gender,
+    String? bloodType,
+    List<String> allergies = const [],
+  }) async {
+    final ref = _col.doc();
+    await ref.set({
+      'profileId': ref.id,
+      'ownerId': ownerId,
+      'hasOwnAccount': false,
+      'linkedUserId': null,
+      'fullName': fullName,
+      'relationship': relationship,
+      if (dateOfBirth != null) 'dateOfBirth': Timestamp.fromDate(dateOfBirth),
+      if (gender != null) 'gender': gender,
+      if (bloodType != null) 'bloodType': bloodType,
+      'allergies': allergies,
+      'createdAt': Timestamp.fromDate(DateTime.now()),
+    });
+  }
+}

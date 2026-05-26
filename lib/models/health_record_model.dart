@@ -1,0 +1,18 @@
+class HealthRecordModel {
+  final String id;
+  final String title;
+  final DateTime createdAt;
+
+  const HealthRecordModel({required this.id, required this.title, required this.createdAt});
+
+  factory HealthRecordModel.fromMap(Map<String, dynamic> map) => HealthRecordModel(
+        id: map['id']?.toString() ?? '',
+        title: map['title']?.toString() ?? '',
+        createdAt: DateTime.tryParse(map['createdAt']?.toString() ?? '') ?? DateTime.now(),
+      );
+
+  Map<String, dynamic> toMap() => {'id': id, 'title': title, 'createdAt': createdAt.toIso8601String()};
+
+  HealthRecordModel copyWith({String? id, String? title, DateTime? createdAt}) =>
+      HealthRecordModel(id: id ?? this.id, title: title ?? this.title, createdAt: createdAt ?? this.createdAt);
+}

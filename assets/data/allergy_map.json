@@ -1,0 +1,7 @@
+{
+  "allergy_triggers": [
+    {"allergy":"penicillin","triggers":["amoxicillin","ampicillin","penicillin"]},
+    {"allergy":"aspirin","triggers":["aspirin","ibuprofen","naproxen"]},
+    {"allergy":"paracetamol","triggers":["paracetamol","panadol"]}
+  ]
+}

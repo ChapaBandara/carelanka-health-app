@@ -1,0 +1,8 @@
+{
+  "conflicts": [
+    {"drug1":"warfarin","drug2":"aspirin","severity":"high","message":"Increased bleeding risk"},
+    {"drug1":"warfarin","drug2":"ibuprofen","severity":"high","message":"Increased bleeding risk"},
+    {"drug1":"simvastatin","drug2":"erythromycin","severity":"high","message":"Risk of serious muscle damage"},
+    {"drug1":"metformin","drug2":"alcohol","severity":"high","message":"Risk of lactic acidosis"}
+  ]
+}
