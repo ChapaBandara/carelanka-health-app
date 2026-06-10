@@ -1,11 +1,12 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
+import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/core/utils/validators.dart';
-import 'package:carelanka_app/providers/auth_provider.dart';
+import 'package:carelanka_app/services/email_otp_service.dart' show EmailOtpService, OtpExpiredException;
+import 'package:carelanka_app/services/password_reset_service.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:carelanka_app/widgets/carelanka/labeled_text_field.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
 class SetNewPasswordScreen extends StatefulWidget {
   const SetNewPasswordScreen({super.key});
@@ -18,8 +19,11 @@ class _SetNewPasswordScreenState extends State<SetNewPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   final _p = TextEditingController();
   final _c = TextEditingController();
+  final _phoneResetService = PasswordResetService();
+  final _emailOtpService = EmailOtpService.instance;
   bool _o1 = true;
   bool _o2 = true;
+  bool _saving = false;
 
   @override
   void dispose() {
@@ -27,6 +31,17 @@ class _SetNewPasswordScreenState extends State<SetNewPasswordScreen> {
     _c.dispose();
     super.dispose();
   }
+
+  Map<String, dynamic>? get _args {
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map) {
+      return Map<String, dynamic>.from(args);
+    }
+    return null;
+  }
+
+  String get _email => _args?['email'] as String? ?? '';
+  String get _channel => _args?['channel'] as String? ?? 'email';
 
   @override
   Widget build(BuildContext context) {
@@ -86,15 +101,8 @@ class _SetNewPasswordScreenState extends State<SetNewPasswordScreen> {
                 ),
                 const SizedBox(height: 32),
                 GradientPrimaryButton(
-                  label: 'Update Password',
-                  onPressed: () async {
-                    if (!(_formKey.currentState?.validate() ?? false)) return;
-                    final auth = context.read<AuthProvider>();
-                    await auth.bootstrap();
-                    if (!context.mounted) return;
-                    final route = auth.isLoggedIn ? AppRoutes.dashboard : AppRoutes.login;
-                    Navigator.pushNamedAndRemoveUntil(context, route, (_) => false);
-                  },
+                  label: _saving ? 'Updating...' : 'Update Password',
+                  onPressed: _saving ? null : _updatePassword,
                 ),
               ],
             ),
@@ -102,5 +110,36 @@ class _SetNewPasswordScreenState extends State<SetNewPasswordScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _updatePassword() async {
+    if (!(_formKey.currentState?.validate() ?? false) || _email.isEmpty) return;
+
+    setState(() => _saving = true);
+    try {
+      if (_channel == 'email') {
+        await _emailOtpService.completePasswordReset(
+          email: _email,
+          newPassword: _p.text,
+        );
+      } else {
+        await _phoneResetService.completePasswordReset(
+          email: _email,
+          newPassword: _p.text,
+          channel: _channel,
+        );
+      }
+      if (!mounted) return;
+      showFirebaseSuccessSnackBar(context, 'Password updated. You can sign in now.');
+      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.login, (_) => false);
+    } on OtpExpiredException {
+      if (!mounted) return;
+      showFirebaseErrorSnackBar(context, 'Code expired. Please request a new one.');
+    } catch (e) {
+      if (!mounted) return;
+      showFirebaseErrorSnackBar(context, firebaseErrorMessage(e));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 }

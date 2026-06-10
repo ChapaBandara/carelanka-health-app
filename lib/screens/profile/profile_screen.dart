@@ -71,14 +71,17 @@ Future<void> _handleDeleteAccount(BuildContext context) async {
     await auth.deleteAccount(password: password);
   } catch (e) {
     if (!context.mounted) return;
-    showFirebaseErrorSnackBar(context, firebaseErrorMessage(e));
-    return;
+    if (!auth.justDeletedAccount) {
+      showFirebaseErrorSnackBar(context, firebaseErrorMessage(e));
+      return;
+    }
   }
 
   if (!context.mounted) return;
   context.read<UserDataProvider>().resetForOwner();
   if (!context.mounted) return;
 
+  auth.justDeletedAccount = true;
   Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(
     AppRoutes.welcome,
     (_) => false,

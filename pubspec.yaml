@@ -24,10 +24,13 @@ dependencies:
   firebase_core: ^4.9.0
   firebase_auth: ^6.5.1
   cloud_firestore: ^6.4.1
+  cloud_functions: ^6.0.0
   firebase_storage: ^13.4.1
   firebase_messaging: ^16.2.2
   flutter_local_notifications: any
   timezone: any
+  emailjs: ^4.0.0
+  http: any
 
 dev_dependencies:
   flutter_test:

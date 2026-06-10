@@ -143,6 +143,22 @@ Future<void> showLoginSuccessNotification(BuildContext context) {
 }
 
 /// CareLanka UI — Register account notification (success).
+const _codeSentSuccess = AuthNotificationCopy(
+  title: 'Code Sent',
+  subtitle: 'Code sent to your email',
+);
+
+/// CareLanka overlay after forgot-password OTP email is sent.
+Future<void> showCodeSentToEmailNotification(BuildContext context) {
+  return showCareLankaSuccessNotification(
+    context,
+    title: _codeSentSuccess.title,
+    subtitle: _codeSentSuccess.subtitle,
+    displayFor: authSuccessNotificationDuration,
+    belowAppBar: true,
+  );
+}
+
 Future<void> showRegisterSuccessNotification(BuildContext context) {
   return showCareLankaSuccessNotification(
     context,

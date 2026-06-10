@@ -151,7 +151,10 @@ class AuthProvider extends ChangeNotifier {
     }
 
     await _authService.reauthenticateWithPassword(email, password);
-    await _userService.deleteUserData(user.uid);
+
+    try {
+      await _userService.deleteUserData(user.uid);
+    } catch (_) {}
 
     try {
       await _authService.deleteAuthUser();

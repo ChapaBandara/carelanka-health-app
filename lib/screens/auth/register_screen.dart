@@ -13,6 +13,7 @@ import 'package:carelanka_app/widgets/auth/logged_out_only_gate.dart';
 import 'package:carelanka_app/providers/user_data_provider.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:carelanka_app/widgets/carelanka/labeled_text_field.dart';
+import 'package:carelanka_app/widgets/carelanka/profile_dropdown_field.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -180,44 +181,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   controller: _dobDisplay,
                 ),
                 const SizedBox(height: 18),
-                const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14, color: AppColors.textDark)),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  initialValue: _gender,
-                  decoration: InputDecoration(
-                    hintText: 'Select gender',
-                    filled: true,
-                    fillColor: Colors.white,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFFDEE2E6)),
-                    ),
-                  ),
-                  items: HealthProfileOptions.genders
-                      .map((g) => DropdownMenuItem(value: g, child: Text(g)))
-                      .toList(),
+                ProfileDropdownField(
+                  label: 'Gender',
+                  hint: 'Select gender',
+                  value: _gender,
+                  items: HealthProfileOptions.genders,
                   onChanged: (v) => setState(() => _gender = v),
                   validator: (v) => _requiredSelection(v, 'Gender'),
                 ),
                 const SizedBox(height: 18),
-                const Text('Blood Type', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14, color: AppColors.textDark)),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  initialValue: _bloodType,
-                  decoration: InputDecoration(
-                    hintText: 'Select blood type',
-                    filled: true,
-                    fillColor: Colors.white,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFFDEE2E6)),
-                    ),
-                  ),
-                  items: HealthProfileOptions.bloodTypes
-                      .map((b) => DropdownMenuItem(value: b, child: Text(b)))
-                      .toList(),
+                ProfileDropdownField(
+                  label: 'Blood Type',
+                  hint: 'Select blood type',
+                  value: _bloodType,
+                  items: HealthProfileOptions.bloodTypes,
                   onChanged: (v) => setState(() => _bloodType = v),
                   validator: (v) => _requiredSelection(v, 'Blood type'),
                 ),
