@@ -14,9 +14,12 @@ class AppointmentService {
     return _col.where('userId', isEqualTo: userId).snapshots().map((snap) {
       final list = snap.docs.map(_toUiMap).toList();
       list.sort((a, b) {
-        final ap = a['period'] == 'past' ? 1 : 0;
-        final bp = b['period'] == 'past' ? 1 : 0;
-        return ap.compareTo(bp);
+        final aPast = a['period'] == 'past';
+        final bPast = b['period'] == 'past';
+        if (aPast != bPast) return aPast ? 1 : -1;
+        final aKey = int.tryParse(a['sortKey'] ?? '0') ?? 0;
+        final bKey = int.tryParse(b['sortKey'] ?? '0') ?? 0;
+        return aPast ? bKey.compareTo(aKey) : aKey.compareTo(bKey);
       });
       return list;
     });
@@ -46,6 +49,7 @@ class AppointmentService {
 
     return {
       'appointmentId': doc.id,
+      'sortKey': dt.millisecondsSinceEpoch.toString(),
       'day': DateFormat('d').format(dt),
       'month': DateFormat('MMM').format(dt).toUpperCase(),
       'year': DateFormat('yyyy').format(dt),

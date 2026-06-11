@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
@@ -18,6 +19,12 @@ class NotificationService {
     await _plugin.initialize(
       settings: const InitializationSettings(android: android, iOS: ios),
     );
+
+    final androidPlugin =
+        _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    await androidPlugin?.requestNotificationsPermission();
+    await androidPlugin?.requestExactAlarmsPermission();
+
     _initialized = true;
   }
 
@@ -32,22 +39,14 @@ class NotificationService {
       final parts = _parseTime(timeStr.trim());
       if (parts == null) continue;
       final scheduled = _nextInstance(parts.$1, parts.$2);
-      await _plugin.zonedSchedule(
+      await _zonedSchedule(
         id: id++,
         scheduledDate: scheduled,
-        notificationDetails: const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'medication_reminders',
-            'Medication Reminders',
-            importance: Importance.high,
-            priority: Priority.high,
-          ),
-          iOS: DarwinNotificationDetails(),
-        ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        matchDateTimeComponents: DateTimeComponents.time,
+        channelId: 'medication_reminders',
+        channelName: 'Medication Reminders',
         title: 'Medication reminder',
         body: title,
+        matchDateTimeComponents: DateTimeComponents.time,
       );
     }
   }
@@ -66,23 +65,71 @@ class NotificationService {
     for (final offset in offsets) {
       final when = appointmentTime.subtract(offset);
       if (when.isBefore(DateTime.now())) continue;
-      await _plugin.zonedSchedule(
+      await _zonedSchedule(
         id: id++,
         scheduledDate: tz.TZDateTime.from(when, tz.local),
-        notificationDetails: const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'appointment_reminders',
-            'Appointment Reminders',
-            importance: Importance.high,
-            priority: Priority.high,
-          ),
-          iOS: DarwinNotificationDetails(),
-        ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        channelId: 'appointment_reminders',
+        channelName: 'Appointment Reminders',
         title: 'Appointment reminder',
         body: title,
       );
     }
+  }
+
+  Future<void> _zonedSchedule({
+    required int id,
+    required tz.TZDateTime scheduledDate,
+    required String channelId,
+    required String channelName,
+    required String title,
+    required String body,
+    DateTimeComponents? matchDateTimeComponents,
+  }) async {
+    final details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        channelId,
+        channelName,
+        importance: Importance.high,
+        priority: Priority.high,
+      ),
+      iOS: const DarwinNotificationDetails(),
+    );
+
+    var mode = await _preferredAndroidScheduleMode();
+    try {
+      await _plugin.zonedSchedule(
+        id: id,
+        scheduledDate: scheduledDate,
+        notificationDetails: details,
+        androidScheduleMode: mode,
+        matchDateTimeComponents: matchDateTimeComponents,
+        title: title,
+        body: body,
+      );
+    } on PlatformException catch (e) {
+      if (e.code != 'exact_alarms_not_permitted' ||
+          mode == AndroidScheduleMode.inexactAllowWhileIdle) {
+        rethrow;
+      }
+      await _plugin.zonedSchedule(
+        id: id,
+        scheduledDate: scheduledDate,
+        notificationDetails: details,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        matchDateTimeComponents: matchDateTimeComponents,
+        title: title,
+        body: body,
+      );
+    }
+  }
+
+  Future<AndroidScheduleMode> _preferredAndroidScheduleMode() async {
+    final android =
+        _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    if (android == null) return AndroidScheduleMode.inexactAllowWhileIdle;
+    final canExact = await android.canScheduleExactNotifications();
+    if (canExact == true) return AndroidScheduleMode.exactAllowWhileIdle;
+    return AndroidScheduleMode.inexactAllowWhileIdle;
   }
 
   (int, int)? _parseTime(String input) {

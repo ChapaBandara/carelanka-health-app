@@ -49,17 +49,24 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
         notes: _reason.text.trim(),
         reminderSettings: const ['2 hours before', '1 day before'],
       );
-      await NotificationService.instance.scheduleAppointmentReminders(
-        appointmentId: '${userId}_${dt.millisecondsSinceEpoch}',
-        title: 'Appointment with ${_doctor.text.trim()}',
-        appointmentTime: dt,
-      );
+
+      var reminderNote = 'Reminders will notify you before the visit.';
+      try {
+        await NotificationService.instance.scheduleAppointmentReminders(
+          appointmentId: '${userId}_${dt.millisecondsSinceEpoch}',
+          title: 'Appointment with ${_doctor.text.trim()}',
+          appointmentTime: dt,
+        );
+      } catch (_) {
+        reminderNote = 'Appointment saved. Enable notification permissions for reminders.';
+      }
+
       if (!mounted) return;
       showFirebaseSuccessSnackBar(context, 'Appointment saved successfully');
       await showCareLankaSuccessNotification(
         context,
         title: 'Appointment saved',
-        subtitle: 'Your appointment has been added. Reminders will notify you before the visit.',
+        subtitle: 'Your appointment has been added. $reminderNote',
       );
       if (mounted) Navigator.pop(context);
     } catch (e) {

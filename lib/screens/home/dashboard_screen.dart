@@ -3,7 +3,9 @@ import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/utils/greeting_helper.dart';
 import 'package:carelanka_app/providers/auth_provider.dart';
 import 'package:carelanka_app/providers/user_data_provider.dart';
+import 'package:carelanka_app/services/appointment_service.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
+import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuth;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -91,26 +93,7 @@ class DashboardScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Upcoming Appointments', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                      if (data.hasAppointments)
-                        TextButton(
-                          onPressed: () => Navigator.pushNamed(context, AppRoutes.appointments),
-                          child: const Text('See All', style: TextStyle(fontWeight: FontWeight.w600)),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  if (data.hasAppointments)
-                    _appointmentCard()
-                  else
-                    const EmptyListPlaceholder(
-                      icon: Icons.calendar_month_outlined,
-                      title: 'No upcoming appointments',
-                      subtitle: 'Add an appointment to see it here.',
-                    ),
+                  _upcomingAppointmentsSection(context),
                   const SizedBox(height: 24),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -317,16 +300,148 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _appointmentCard() {
+  Widget _upcomingAppointmentsSection(BuildContext context) {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) {
+      return const SizedBox.shrink();
+    }
+
+    return StreamBuilder<List<Map<String, String>>>(
+      stream: AppointmentService().watchAppointmentMaps(userId),
+      builder: (context, snapshot) {
+        final upcoming = (snapshot.data ?? []).where((a) => a['period'] != 'past').toList();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Upcoming Appointments', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                if (upcoming.isNotEmpty)
+                  TextButton(
+                    onPressed: () => Navigator.pushNamed(context, AppRoutes.appointments),
+                    child: const Text('See All', style: TextStyle(fontWeight: FontWeight.w600)),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (upcoming.isEmpty)
+              const EmptyListPlaceholder(
+                icon: Icons.calendar_month_outlined,
+                title: 'No upcoming appointments',
+                subtitle: 'Add an appointment to see it here.',
+              )
+            else
+              _appointmentCard(upcoming.first),
+          ],
+        );
+      },
+    );
+  }
+
+  Color _badgeColor(String badge) {
+    if (badge.contains('TODAY')) return AppColors.errorRed;
+    if (badge.contains('TOMORROW')) return const Color(0xFFF9A825);
+    return const Color(0xFF64B5F6);
+  }
+
+  Widget _appointmentCard(Map<String, String> appointment) {
+    final badge = appointment['badge'] ?? '';
     return Container(
-      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 10, offset: const Offset(0, 3)),
+        ],
       ),
-      child: const ListTile(
-        title: Text('Appointment', style: TextStyle(fontWeight: FontWeight.w700)),
-        subtitle: Text('Details from your list'),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 56,
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            decoration: const BoxDecoration(
+              color: AppColors.primaryTeal,
+              borderRadius: BorderRadius.horizontal(left: Radius.circular(14)),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  appointment['day'] ?? '—',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18),
+                ),
+                Text(
+                  appointment['month'] ?? '',
+                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                ),
+                Text(
+                  appointment['year'] ?? '',
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 10),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          appointment['doctor'] ?? '',
+                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.navy),
+                        ),
+                      ),
+                      if (badge.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(color: _badgeColor(badge), borderRadius: BorderRadius.circular(20)),
+                          child: Text(
+                            badge,
+                            style: TextStyle(
+                              color: badge.contains('IN ') ? AppColors.navy : Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.place_outlined, size: 16, color: AppColors.textGrey),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          appointment['hospital'] ?? '',
+                          style: const TextStyle(color: AppColors.textGrey, fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Icon(Icons.access_time, size: 16, color: AppColors.textGrey),
+                      const SizedBox(width: 4),
+                      Text(
+                        appointment['time'] ?? '',
+                        style: const TextStyle(color: AppColors.textGrey, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
