@@ -159,6 +159,24 @@ Future<void> showCodeSentToEmailNotification(BuildContext context) {
   );
 }
 
+const _passwordResetLinkSent = AuthNotificationCopy(
+  title: 'Identity Verified',
+  subtitle:
+      'Your identity is verified. We have sent a password reset link to your email. '
+      'Please check your email and click the link to set your new password.',
+);
+
+/// CareLanka overlay after email OTP is verified and Firebase reset link is sent.
+Future<void> showPasswordResetLinkSentNotification(BuildContext context) {
+  return showCareLankaSuccessNotification(
+    context,
+    title: _passwordResetLinkSent.title,
+    subtitle: _passwordResetLinkSent.subtitle,
+    displayFor: authSuccessNotificationDuration,
+    belowAppBar: true,
+  );
+}
+
 Future<void> showRegisterSuccessNotification(BuildContext context) {
   return showCareLankaSuccessNotification(
     context,

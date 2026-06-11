@@ -5,7 +5,6 @@ class AppRoutes {
   static const register = '/register';
   static const forgotPassword = '/forgot-password';
   static const verifyResetCode = '/verify-reset-code';
-  static const setNewPassword = '/set-new-password';
   static const dashboard = '/dashboard';
   static const illnessList = '/illnesses';
   static const addIllness = '/add-illness';

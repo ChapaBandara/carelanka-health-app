@@ -1,4 +1,3 @@
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
@@ -23,13 +22,6 @@ void showFirebaseErrorSnackBar(BuildContext context, String message) {
 }
 
 String firebaseErrorMessage(Object error) {
-  if (error is FirebaseFunctionsException) {
-    if (error.code == 'not-found' || error.code == 'unavailable') {
-      return 'Password reset service is not available yet. Deploy Cloud Functions '
-          '(Firebase Blaze plan required), then try again.';
-    }
-    return error.message ?? error.code;
-  }
   if (error is FirebaseAuthException) {
     final message = error.message ?? '';
     if (error.code == 'unknown' && message.contains('CONFIGURATION_NOT_FOUND')) {

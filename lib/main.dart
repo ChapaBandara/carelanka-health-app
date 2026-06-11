@@ -13,7 +13,6 @@ import 'package:carelanka_app/screens/appointments/appointments_screen.dart';
 import 'package:carelanka_app/screens/auth/forgot_password_screen.dart';
 import 'package:carelanka_app/screens/auth/login_screen.dart';
 import 'package:carelanka_app/screens/auth/register_screen.dart';
-import 'package:carelanka_app/screens/auth/set_new_password_screen.dart';
 import 'package:carelanka_app/screens/auth/splash_screen.dart';
 import 'package:carelanka_app/screens/auth/welcome_screen.dart';
 import 'package:carelanka_app/screens/allergies/allergy_screen.dart';
@@ -80,7 +79,6 @@ class CareLankaApp extends StatelessWidget {
           AppRoutes.register: (_) => const RegisterScreen(),
           AppRoutes.forgotPassword: (_) => const ForgotPasswordScreen(),
           AppRoutes.verifyResetCode: (_) => const VerifyResetCodeScreen(),
-          AppRoutes.setNewPassword: (_) => const SetNewPasswordScreen(),
           AppRoutes.dashboard: (_) => const MainShell(initialIndex: 0),
           AppRoutes.medicationList: (_) => const MedicationListScreen(),
           AppRoutes.healthRecords: (_) => const HealthRecordsScreen(),
