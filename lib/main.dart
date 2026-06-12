@@ -27,7 +27,10 @@ import 'package:carelanka_app/screens/illnesses/illness_list_screen.dart';
 import 'package:carelanka_app/screens/main_shell.dart';
 import 'package:carelanka_app/screens/medications/medication_list_screen.dart';
 import 'package:carelanka_app/screens/medications/add_medication_screen.dart';
+import 'package:carelanka_app/screens/medications/confirmed_medication_screen.dart';
 import 'package:carelanka_app/screens/medications/reminder_history_screen.dart';
+import 'package:carelanka_app/screens/medications/snoozed_medication_screen.dart';
+import 'package:carelanka_app/screens/medications/taking_medication_screen.dart';
 import 'package:carelanka_app/screens/profile/about_screen.dart';
 import 'package:carelanka_app/screens/profile/change_password_screen.dart';
 import 'package:carelanka_app/screens/profile/edit_profile_screen.dart';
@@ -35,6 +38,8 @@ import 'package:carelanka_app/screens/profile/help_screen.dart';
 import 'package:carelanka_app/screens/profile/notification_settings_screen.dart';
 import 'package:carelanka_app/screens/profile/privacy_screen.dart';
 import 'package:carelanka_app/screens/profile/report_problem_screen.dart';
+import 'package:carelanka_app/screens/records/documents_library_screen.dart';
+import 'package:carelanka_app/screens/records/health_record_search_screen.dart';
 import 'package:carelanka_app/screens/records/health_records_screen.dart';
 import 'package:carelanka_app/screens/records/add_health_record_screen.dart';
 import 'package:carelanka_app/screens/records/document_viewer_screen.dart';
@@ -89,7 +94,12 @@ class CareLankaApp extends StatelessWidget {
           AppRoutes.illnessDetail: (_) => const IllnessDetailScreen(),
           AppRoutes.addMedication: (_) => const AddMedicationScreen(),
           AppRoutes.reminderHistory: (_) => const ReminderHistoryScreen(),
+          AppRoutes.takingMedication: (_) => const TakingMedicationScreen(),
+          AppRoutes.confirmedMedication: (_) => const ConfirmedMedicationScreen(),
+          AppRoutes.snoozedMedication: (_) => const SnoozedMedicationScreen(),
           AppRoutes.addRecord: (_) => const AddHealthRecordScreen(),
+          AppRoutes.documentsLibrary: (_) => const DocumentsLibraryScreen(),
+          AppRoutes.healthRecordSearch: (_) => const HealthRecordSearchScreen(),
           AppRoutes.documentViewer: (_) => const DocumentViewerScreen(),
           AppRoutes.appointments: (_) => const AppointmentsScreen(),
           AppRoutes.addAppointment: (_) => const AddAppointmentScreen(),

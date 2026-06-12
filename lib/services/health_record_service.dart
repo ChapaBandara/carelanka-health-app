@@ -28,17 +28,49 @@ class HealthRecordService {
     final d = doc.data();
     final visit = d['visitDate'];
     String dateStr = '';
+    String shortDate = '';
+    String monthDay = '';
     if (visit is Timestamp) {
-      dateStr = DateFormat('d MMM yyyy').format(visit.toDate());
+      final dt = visit.toDate();
+      dateStr = DateFormat('d MMM yyyy').format(dt);
+      shortDate = DateFormat('MMM d').format(dt);
+      monthDay = DateFormat('MMM d, yyyy').format(dt);
     }
+    final doctor = d['doctorName'] as String? ?? '';
+    final diagnosis = d['diagnosis'] as String? ?? '';
+    final docType = d['documentType'] as String? ?? 'Record';
+    final title = diagnosis.isNotEmpty ? '$diagnosis — $doctor' : 'Dr. $doctor — $shortDate';
     return {
       'recordId': doc.id,
       'date': dateStr,
-      'doctor': d['doctorName'] as String? ?? '',
+      'shortDate': shortDate,
+      'monthDay': monthDay,
+      'doctor': doctor,
       'place': d['hospital'] as String? ?? '',
-      'tag': d['documentType'] as String? ?? d['diagnosis'] as String? ?? 'Record',
+      'diagnosis': diagnosis,
+      'notes': d['notes'] as String? ?? '',
+      'tag': docType,
+      'documentType': docType,
       'documentUrl': d['documentUrl'] as String? ?? '',
+      'title': title,
+      'linkedIllness': d['linkedIllness'] as String? ?? '',
     };
+  }
+
+  List<Map<String, String>> searchRecords(List<Map<String, String>> records, String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return records;
+    return records.where((r) {
+      final haystack = [
+        r['title'],
+        r['doctor'],
+        r['diagnosis'],
+        r['place'],
+        r['tag'],
+        r['documentType'],
+      ].join(' ').toLowerCase();
+      return haystack.contains(q);
+    }).toList();
   }
 
   Future<void> addRecord({

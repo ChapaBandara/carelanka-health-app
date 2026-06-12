@@ -12,7 +12,12 @@ class AppRoutes {
   static const medicationList = '/medications';
   static const addMedication = '/add-medication';
   static const reminderHistory = '/reminder-history';
+  static const takingMedication = '/taking-medication';
+  static const confirmedMedication = '/confirmed-medication';
+  static const snoozedMedication = '/snoozed-medication';
   static const healthRecords = '/records';
+  static const documentsLibrary = '/documents-library';
+  static const healthRecordSearch = '/health-record-search';
   static const addRecord = '/add-record';
   static const documentViewer = '/document-viewer';
   static const appointments = '/appointments';

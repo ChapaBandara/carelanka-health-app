@@ -3,11 +3,13 @@ import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/services/illness_service.dart';
 import 'package:carelanka_app/services/medication_service.dart';
+import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+/// CareLanka UI #21 / #23 — Illness detail with medications, complete & delete actions.
 class IllnessDetailScreen extends StatelessWidget {
   const IllnessDetailScreen({super.key});
 
@@ -21,17 +23,19 @@ class IllnessDetailScreen extends StatelessWidget {
     if (illnessId == null || illnessId.isEmpty) {
       return _buildScaffold(
         context,
+        userId: userId,
         name: illness?['name'] ?? 'Illness',
         diagnosedLabel: illness?['since'] ?? '',
-        endsLabel: '',
-        durationBadge: 'Long-term',
-        showRenewalAlert: false,
+        doctorName: '',
+        notes: '',
+        durationBadge: 'LONG-TERM',
+        illnessId: '',
+        illnessStatus: 'active',
         medicationsSection: const EmptyListPlaceholder(
           icon: Icons.medication_outlined,
           title: 'No medications yet',
           subtitle: 'Add a medication to track doses and reminders for this illness.',
         ),
-        illnessId: '',
       );
     }
 
@@ -40,32 +44,34 @@ class IllnessDetailScreen extends StatelessWidget {
       builder: (context, illnessSnap) {
         var displayName = illness?['name'] ?? 'Illness';
         var diagnosedLabel = illness?['since'] ?? '';
-        var endsLabel = '';
-        var durationBadge = 'Long-term';
+        var durationBadge = 'LONG-TERM';
         var illnessStatus = illness?['status'] ?? 'active';
+        var doctorName = '';
+        var notes = '';
 
         if (illnessSnap.hasData && illnessSnap.data!.exists) {
           final ui = IllnessService().illnessDocToUiMap(illnessSnap.data!.data()!, illnessId);
           displayName = ui['name'] ?? displayName;
           diagnosedLabel = ui['diagnosedLabel'] ?? ui['since'] ?? diagnosedLabel;
-          endsLabel = ui['endsLabel'] ?? '';
-          durationBadge = ui['durationBadge'] ?? durationBadge;
+          durationBadge = (ui['durationBadge'] ?? 'Long-term').toUpperCase();
           illnessStatus = ui['status'] ?? illnessStatus;
+          doctorName = ui['doctorName'] ?? '';
+          notes = ui['notes'] ?? '';
         }
 
         return StreamBuilder<List<Map<String, dynamic>>>(
           stream: MedicationService().watchMedicationsForIllness(userId: userId, illnessId: illnessId),
           builder: (context, medSnap) {
             final meds = medSnap.data ?? [];
-            final showRenewalAlert = meds.any(_isLowStock);
 
             return _buildScaffold(
               context,
+              userId: userId,
               name: displayName,
               diagnosedLabel: diagnosedLabel,
-              endsLabel: endsLabel,
+              doctorName: doctorName,
+              notes: notes,
               durationBadge: durationBadge,
-              showRenewalAlert: showRenewalAlert,
               illnessId: illnessId,
               illnessName: displayName,
               illnessStatus: illnessStatus,
@@ -76,10 +82,14 @@ class IllnessDetailScreen extends StatelessWidget {
                       subtitle: 'Add a medication to track doses and reminders for this illness.',
                     )
                   : Column(
-                      children: meds.map((m) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: _medicationCard(context, m, illnessId: illnessId, illnessName: displayName),
-                          )).toList(),
+                      children: meds
+                          .map(
+                            (m) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _medicationCard(context, m, illnessId: illnessId, illnessName: displayName),
+                            ),
+                          )
+                          .toList(),
                     ),
             );
           },
@@ -88,25 +98,21 @@ class IllnessDetailScreen extends StatelessWidget {
     );
   }
 
-  bool _isLowStock(Map<String, dynamic> med) {
-    final stock = (med['stockCount'] as num?)?.toInt() ?? 0;
-    final threshold = (med['lowStockThreshold'] as num?)?.toInt() ?? 5;
-    return stock <= threshold;
-  }
-
   Widget _buildScaffold(
     BuildContext context, {
+    required String userId,
     required String name,
     required String diagnosedLabel,
-    required String endsLabel,
+    required String doctorName,
+    required String notes,
     required String durationBadge,
-    required bool showRenewalAlert,
     required String illnessId,
     String? illnessName,
     String illnessStatus = 'active',
     required Widget medicationsSection,
   }) {
     final isCompleted = illnessStatus == 'completed';
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -136,20 +142,19 @@ class IllnessDetailScreen extends StatelessWidget {
             _summaryCard(
               name: name,
               diagnosedLabel: diagnosedLabel,
-              endsLabel: endsLabel,
+              doctorName: doctorName,
+              notes: notes,
               durationBadge: durationBadge,
-              showRenewalAlert: showRenewalAlert,
-              onBookAppointment: () => Navigator.pushNamed(context, AppRoutes.addAppointment),
             ),
             const SizedBox(height: 22),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text(
-                  'Prescribed Medications',
+                  'Medications',
                   style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: AppColors.navy),
                 ),
-                if (illnessId.isNotEmpty)
+                if (illnessId.isNotEmpty && !isCompleted)
                   TextButton.icon(
                     onPressed: () => Navigator.pushNamed(
                       context,
@@ -161,7 +166,7 @@ class IllnessDetailScreen extends StatelessWidget {
                     ),
                     icon: const Icon(Icons.add, size: 18, color: AppColors.primaryTeal),
                     label: const Text(
-                      'Add',
+                      'Add New',
                       style: TextStyle(color: AppColors.primaryTeal, fontWeight: FontWeight.w700),
                     ),
                   ),
@@ -169,28 +174,22 @@ class IllnessDetailScreen extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             medicationsSection,
-            const SizedBox(height: 20),
-            _actionButton(
-              label: 'Mark All Taken Today',
-              background: const Color(0xFFE3F2FD),
-              foreground: const Color(0xFF1565C0),
-              onTap: () {},
-            ),
-            const SizedBox(height: 10),
-            _actionButton(
-              label: 'View Reminder History',
-              background: const Color(0xFFE0F7F7),
-              foreground: AppColors.primaryTeal,
-              onTap: () => Navigator.pushNamed(context, AppRoutes.reminderHistory),
-            ),
-            if (!isCompleted) ...[
-              const SizedBox(height: 10),
-              _actionButton(
-                label: 'End This Illness',
-                background: Colors.white,
-                foreground: AppColors.errorRed,
-                borderColor: AppColors.errorRed,
-                onTap: () => _endIllness(context, illnessId: illnessId, name: name),
+            if (illnessId.isNotEmpty && !isCompleted) ...[
+              const SizedBox(height: 24),
+              GradientPrimaryButton(
+                label: 'Mark as Completed',
+                onPressed: () => _completeIllness(context, illnessId: illnessId, name: name),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton(
+                onPressed: () => _deleteRecord(context, userId: userId, illnessId: illnessId, name: name),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.errorRed,
+                  side: const BorderSide(color: AppColors.errorRed, width: 1.5),
+                  minimumSize: const Size(double.infinity, 52),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: const Text('Delete Record', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
               ),
             ],
           ],
@@ -202,10 +201,9 @@ class IllnessDetailScreen extends StatelessWidget {
   Widget _summaryCard({
     required String name,
     required String diagnosedLabel,
-    required String endsLabel,
+    required String doctorName,
+    required String notes,
     required String durationBadge,
-    required bool showRenewalAlert,
-    required VoidCallback onBookAppointment,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -251,8 +249,9 @@ class IllnessDetailScreen extends StatelessWidget {
                             durationBadge,
                             style: const TextStyle(
                               color: AppColors.navy,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.3,
                             ),
                           ),
                         ),
@@ -262,42 +261,19 @@ class IllnessDetailScreen extends StatelessWidget {
                       const SizedBox(height: 6),
                       Text(diagnosedLabel, style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
                     ],
-                    if (endsLabel.isNotEmpty) ...[
+                    if (doctorName.isNotEmpty) ...[
                       const SizedBox(height: 4),
-                      Text(endsLabel, style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
+                      Text(doctorName, style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
                     ],
-                    if (showRenewalAlert) ...[
-                      const SizedBox(height: 14),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE8F4FC),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFF90CAF9)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Medications running low. Consider visiting your doctor for renewal.',
-                              style: TextStyle(color: AppColors.navy, fontSize: 13, height: 1.4),
-                            ),
-                            const SizedBox(height: 10),
-                            SizedBox(
-                              height: 36,
-                              child: ElevatedButton(
-                                onPressed: onBookAppointment,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF42A5F5),
-                                  foregroundColor: Colors.white,
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                ),
-                                child: const Text('Book Appointment', style: TextStyle(fontWeight: FontWeight.w600)),
-                              ),
-                            ),
-                          ],
+                    if (notes.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        notes,
+                        style: const TextStyle(
+                          color: AppColors.textGrey,
+                          fontSize: 13,
+                          fontStyle: FontStyle.italic,
+                          height: 1.45,
                         ),
                       ),
                     ],
@@ -320,10 +296,8 @@ class IllnessDetailScreen extends StatelessWidget {
     final name = med['name'] as String? ?? 'Medication';
     final dosage = med['dosage'] as String? ?? '';
     final frequency = med['frequency'] as String? ?? '';
-    final mealTiming = _formatMealTiming(med['mealTiming'] as String? ?? '');
     final times = (med['scheduledTimes'] as List?)?.map((e) => e.toString()).toList() ?? [];
-    final stock = (med['stockCount'] as num?)?.toInt() ?? 0;
-    final low = _isLowStock(med);
+    final instruction = [dosage, frequency].where((s) => s.isNotEmpty).join(', ');
 
     return Container(
       decoration: BoxDecoration(
@@ -333,109 +307,79 @@ class IllnessDetailScreen extends StatelessWidget {
           BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 10, offset: const Offset(0, 3)),
         ],
       ),
-      child: IntrinsicHeight(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              width: 5,
-              decoration: const BoxDecoration(
-                color: AppColors.primaryTeal,
-                borderRadius: BorderRadius.horizontal(left: Radius.circular(14)),
-              ),
+              width: 44,
+              height: 44,
+              decoration: const BoxDecoration(color: Color(0xFFE0F7F7), shape: BoxShape.circle),
+              child: const Icon(Icons.medication_outlined, color: AppColors.primaryTeal, size: 24),
             ),
+            const SizedBox(width: 12),
             Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(name, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.navy)),
-                          if (dosage.isNotEmpty)
-                            Text(dosage, style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
-                          const SizedBox(height: 4),
-                          Text(
-                            [frequency, mealTiming].where((s) => s.isNotEmpty).join(' • '),
-                            style: const TextStyle(color: AppColors.textGrey, fontSize: 13),
-                          ),
-                          if (times.isNotEmpty) ...[
-                            const SizedBox(height: 10),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
-                              children: times
-                                  .map(
-                                    (t) => Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFE0F7F7),
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      child: Text(
-                                        t,
-                                        style: const TextStyle(
-                                          color: AppColors.primaryTeal,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.navy)),
+                  if (instruction.isNotEmpty)
+                    Text(instruction, style: const TextStyle(color: AppColors.textGrey, fontSize: 13, height: 1.35)),
+                  if (times.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: times
+                          .map(
+                            (t) => Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE0F7F7),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.access_time, size: 14, color: AppColors.primaryTeal),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    t,
+                                    style: const TextStyle(
+                                      color: AppColors.primaryTeal,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
                                     ),
-                                  )
-                                  .toList(),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        PopupMenuButton<String>(
-                          icon: const Icon(Icons.more_horiz, color: AppColors.textGrey),
-                          onSelected: (value) {
-                            if (value == 'edit') {
-                              Navigator.pushNamed(
-                                context,
-                                AppRoutes.addMedication,
-                                arguments: {
-                                  'illnessId': illnessId,
-                                  'illnessName': illnessName,
-                                  'medication': med,
-                                },
-                              );
-                            }
-                          },
-                          itemBuilder: (_) => const [
-                            PopupMenuItem(value: 'edit', child: Text('Edit')),
-                          ],
-                        ),
-                        if (low) ...[
-                          Text(
-                            '$stock tablets left',
-                            style: const TextStyle(color: AppColors.errorRed, fontSize: 12, fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(height: 4),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: AppColors.errorRed,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Text(
-                              'Running Low!',
-                              style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
-                            ),
-                          ),
-                        ],
-                      ],
+                          )
+                          .toList(),
                     ),
                   ],
-                ),
+                ],
               ),
+            ),
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert, color: AppColors.textGrey, size: 20),
+              onSelected: (value) {
+                if (value == 'edit') {
+                  Navigator.pushNamed(
+                    context,
+                    AppRoutes.addMedication,
+                    arguments: {
+                      'illnessId': illnessId,
+                      'illnessName': illnessName,
+                      'medication': med,
+                    },
+                  );
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'edit', child: Text('Edit')),
+              ],
             ),
           ],
         ),
@@ -443,7 +387,7 @@ class IllnessDetailScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _endIllness(
+  Future<void> _completeIllness(
     BuildContext context, {
     required String illnessId,
     required String name,
@@ -451,16 +395,13 @@ class IllnessDetailScreen extends StatelessWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('End this illness?'),
-        content: Text(
-          'Mark "$name" as completed? It will move to your Completed Illnesses list.',
-        ),
+        title: const Text('Mark as completed?'),
+        content: Text('Move "$name" to your Completed Illnesses list?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: AppColors.errorRed),
-            child: const Text('End illness'),
+            child: const Text('Complete'),
           ),
         ],
       ),
@@ -482,47 +423,43 @@ class IllnessDetailScreen extends StatelessWidget {
     }
   }
 
-  String _formatMealTiming(String value) {
-    switch (value.toLowerCase()) {
-      case 'before_meals':
-        return 'Before food';
-      case 'after_meals':
-        return 'After food';
-      case 'with_meals':
-        return 'With food';
-      default:
-        if (value.isEmpty || value == 'anytime') return 'Anytime';
-        return value;
-    }
-  }
-
-  Widget _actionButton({
-    required String label,
-    required Color background,
-    required Color foreground,
-    Color? borderColor,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: background,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: borderColor != null ? Border.all(color: borderColor) : null,
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            style: TextStyle(color: foreground, fontWeight: FontWeight.w700, fontSize: 15),
-          ),
+  Future<void> _deleteRecord(
+    BuildContext context, {
+    required String userId,
+    required String illnessId,
+    required String name,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete illness record?'),
+        content: Text(
+          'Delete "$name" and all medications linked to it? This cannot be undone.',
         ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.errorRed),
+            child: const Text('Delete'),
+          ),
+        ],
       ),
     );
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      await IllnessService().deleteIllness(userId: userId, illnessId: illnessId);
+      if (!context.mounted) return;
+      await showCareLankaSuccessNotification(
+        context,
+        title: 'Record deleted',
+        subtitle: '$name and its medications were removed.',
+      );
+      if (context.mounted) Navigator.pop(context);
+    } catch (e) {
+      if (!context.mounted) return;
+      showFirebaseErrorSnackBar(context, firebaseErrorMessage(e));
+    }
   }
 }
