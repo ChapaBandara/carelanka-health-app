@@ -16,6 +16,25 @@ class ReminderService {
         );
   }
 
+  Stream<int> watchTakenDosesToday(String userId) {
+    return _col.where('userId', isEqualTo: userId).snapshots().map((snap) {
+      final now = DateTime.now();
+      final start = DateTime(now.year, now.month, now.day);
+      final end = start.add(const Duration(days: 1));
+      var count = 0;
+      for (final doc in snap.docs) {
+        final d = doc.data();
+        final status = (d['status'] as String? ?? '').toLowerCase();
+        if (status != 'confirmed' && status != 'taken') continue;
+        final scheduled = d['scheduledTime'];
+        if (scheduled is! Timestamp) continue;
+        final dt = scheduled.toDate();
+        if (!dt.isBefore(start) && dt.isBefore(end)) count++;
+      }
+      return count;
+    });
+  }
+
   Map<String, String> _toUiMap(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data();
     final status = (d['status'] as String? ?? 'confirmed').toLowerCase();

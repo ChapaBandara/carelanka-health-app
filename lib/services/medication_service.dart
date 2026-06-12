@@ -38,6 +38,7 @@ class MedicationService {
     int prescribedDays = 30,
     int stockCount = 30,
     int lowStockThreshold = 5,
+    bool hasConflictWarning = false,
   }) async {
     final ref = _col.doc();
     await ref.set({
@@ -56,11 +57,50 @@ class MedicationService {
       'startDate': Timestamp.fromDate(DateTime.now()),
       'endDate': null,
       'active': true,
-      'hasConflictWarning': false,
+      'hasConflictWarning': hasConflictWarning,
       'originalScheduledTimes': scheduledTimes,
       'createdAt': Timestamp.fromDate(DateTime.now()),
     });
     return ref.id;
+  }
+
+  Future<void> updateMedication({
+    required String medicationId,
+    required String name,
+    required String dosage,
+    required String frequency,
+    required List<String> scheduledTimes,
+    String category = 'General',
+    String mealTiming = 'anytime',
+    int prescribedDays = 30,
+    int stockCount = 30,
+    int lowStockThreshold = 5,
+    bool hasConflictWarning = false,
+  }) async {
+    await _col.doc(medicationId).update({
+      'name': name,
+      'dosage': dosage,
+      'category': category,
+      'frequency': frequency,
+      'scheduledTimes': scheduledTimes,
+      'mealTiming': mealTiming,
+      'prescribedDays': prescribedDays,
+      'stockCount': stockCount,
+      'lowStockThreshold': lowStockThreshold,
+      'hasConflictWarning': hasConflictWarning,
+      'originalScheduledTimes': scheduledTimes,
+    });
+  }
+
+  List<Map<String, dynamic>> filterActiveForIllnesses(
+    List<Map<String, dynamic>> medications,
+    Set<String> activeIllnessIds,
+  ) {
+    return medications.where((m) {
+      if (m['active'] != true) return false;
+      final illnessId = m['illnessId'] as String? ?? '';
+      return activeIllnessIds.contains(illnessId);
+    }).toList();
   }
 
   Future<String?> findIllnessIdByName(String userId, String illnessName) async {

@@ -1,9 +1,13 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/utils/greeting_helper.dart';
+import 'package:carelanka_app/core/utils/medication_schedule_helper.dart';
 import 'package:carelanka_app/providers/auth_provider.dart';
 import 'package:carelanka_app/providers/user_data_provider.dart';
 import 'package:carelanka_app/services/appointment_service.dart';
+import 'package:carelanka_app/services/illness_service.dart';
+import 'package:carelanka_app/services/medication_service.dart';
+import 'package:carelanka_app/services/reminder_service.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
 import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuth;
 import 'package:fl_chart/fl_chart.dart';
@@ -69,15 +73,7 @@ class DashboardScreen extends StatelessWidget {
                   ),
                 ] else ...[
                   const SizedBox(height: 20),
-                  if (!data.hasMedications && !data.hasReminders)
-                    _emptyOverview()
-                  else
-                    _overviewCard(data),
-                  const SizedBox(height: 14),
-                  if (data.hasReminders)
-                    _nextReminderCard()
-                  else
-                    _emptyNextReminder(),
+                  _medicationOverviewSection(context),
                   const SizedBox(height: 22),
                   const Text('Quick actions', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                   const SizedBox(height: 12),
@@ -153,6 +149,80 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
+  Widget _medicationOverviewSection(BuildContext context) {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) {
+      return Column(
+        children: [
+          _emptyOverview(),
+          const SizedBox(height: 14),
+          _emptyNextReminder(),
+        ],
+      );
+    }
+
+    return StreamBuilder<List<Map<String, String>>>(
+      stream: IllnessService().watchIllnessMaps(userId),
+      builder: (context, illnessSnap) {
+        return StreamBuilder<List<Map<String, dynamic>>>(
+          stream: MedicationService().watchMedications(userId),
+          builder: (context, medSnap) {
+            return StreamBuilder<int>(
+              stream: ReminderService().watchTakenDosesToday(userId),
+              builder: (context, takenSnap) {
+                if (illnessSnap.connectionState == ConnectionState.waiting ||
+                    medSnap.connectionState == ConnectionState.waiting) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 40),
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+
+                final activeIllnessIds = (illnessSnap.data ?? [])
+                    .where((i) => i['status'] != 'completed')
+                    .map((i) => i['illnessId'] ?? '')
+                    .where((id) => id.isNotEmpty)
+                    .toSet();
+                final activeMeds = MedicationService()
+                    .filterActiveForIllnesses(medSnap.data ?? [], activeIllnessIds);
+
+                final now = DateTime.now();
+                final totalDoses = MedicationScheduleHelper.totalDosesToday(activeMeds, now);
+                final taken = takenSnap.data ?? 0;
+                final nextDose = MedicationScheduleHelper.nextDoseToday(activeMeds, now);
+                final hasMeds = activeMeds.isNotEmpty;
+
+                return Column(
+                  children: [
+                    if (!hasMeds)
+                      _emptyOverview()
+                    else
+                      _overviewCard(
+                        takenDoses: taken,
+                        totalDoses: totalDoses,
+                        activeMedicationCount: activeMeds.length,
+                      ),
+                    const SizedBox(height: 14),
+                    if (nextDose != null)
+                      _nextReminderCard(
+                        timeLabel: nextDose.label,
+                        medicationLabel: [
+                          nextDose.name,
+                          if (nextDose.dosage.isNotEmpty) nextDose.dosage,
+                        ].join(' '),
+                      )
+                    else
+                      _emptyNextReminder(),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _emptyOverview() {
     return Container(
       padding: const EdgeInsets.all(18),
@@ -201,7 +271,25 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _overviewCard(UserDataProvider data) {
+  Widget _overviewCard({
+    required int takenDoses,
+    required int totalDoses,
+    required int activeMedicationCount,
+  }) {
+    final percent = totalDoses == 0 ? 0 : ((takenDoses / totalDoses) * 100).round();
+    final remaining = (totalDoses - takenDoses).clamp(0, totalDoses).toDouble();
+    final takenValue = takenDoses.toDouble();
+    final chartSections = totalDoses == 0
+        ? [
+            PieChartSectionData(value: 1, radius: 14, showTitle: false, color: const Color(0xFFE6E6E6)),
+          ]
+        : [
+            if (takenValue > 0)
+              PieChartSectionData(value: takenValue, radius: 14, showTitle: false, color: AppColors.primaryTeal),
+            if (remaining > 0)
+              PieChartSectionData(value: remaining, radius: 14, showTitle: false, color: const Color(0xFFE6E6E6)),
+          ];
+
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -213,15 +301,21 @@ class DashboardScreen extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Today's Overview", style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
-                SizedBox(height: 6),
-                Text('0 of 0 doses taken', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
-                SizedBox(height: 6),
-                Text('0 medications active', style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
+                const Text("Today's Overview", style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
+                const SizedBox(height: 6),
+                Text(
+                  '$takenDoses of $totalDoses doses taken',
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '$activeMedicationCount active medication${activeMedicationCount == 1 ? '' : 's'}',
+                  style: const TextStyle(color: AppColors.textGrey, fontSize: 13),
+                ),
               ],
             ),
           ),
@@ -235,12 +329,10 @@ class DashboardScreen extends StatelessWidget {
                   PieChartData(
                     sectionsSpace: 0,
                     centerSpaceRadius: 32,
-                    sections: [
-                      PieChartSectionData(value: 1, radius: 14, showTitle: false, color: const Color(0xFFE6E6E6)),
-                    ],
+                    sections: chartSections,
                   ),
                 ),
-                const Text('0%', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                Text('$percent%', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
               ],
             ),
           ),
@@ -249,26 +341,39 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _nextReminderCard() {
+  Widget _nextReminderCard({
+    required String timeLabel,
+    required String medicationLabel,
+  }) {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: AppColors.primaryTeal,
         borderRadius: BorderRadius.circular(16),
       ),
-      child: const Row(
+      child: Row(
         children: [
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Next Reminder', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                SizedBox(height: 6),
-                Text('—', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+                const Text('Next Reminder', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                const SizedBox(height: 6),
+                Text(
+                  timeLabel,
+                  style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700),
+                ),
+                if (medicationLabel.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    medicationLabel,
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 13),
+                  ),
+                ],
               ],
             ),
           ),
-          Icon(Icons.medication_liquid_rounded, color: Colors.white, size: 28),
+          const Icon(Icons.medication_liquid_rounded, color: Colors.white, size: 28),
         ],
       ),
     );

@@ -1,7 +1,9 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/design/carelanka_gradients.dart';
+import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/services/illness_service.dart';
+import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -95,23 +97,77 @@ class _MedicationListScreenState extends State<MedicationListScreen> with Single
           itemCount: list.length,
           itemBuilder: (_, i) {
             final item = list[i];
+            final illnessId = item['illnessId'] ?? '';
+            final isCompleted = item['status'] == 'completed';
             return Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: _illnessCard(
-                item,
-                item['initials'] ?? '?',
-                const Color(0xFFB2DFDB),
-                item['name'] ?? '',
-                item['since'] ?? '',
-                item['meds'] ?? '0 medications',
-                item['chip2'] ?? 'Ongoing',
-                const Color(0xFFBBDEFB),
+              child: Dismissible(
+                key: ValueKey(illnessId),
+                direction: DismissDirection.endToStart,
+                background: Container(
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.only(right: 24),
+                  decoration: BoxDecoration(
+                    color: AppColors.errorRed,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
+                ),
+                confirmDismiss: (_) => _confirmDeleteIllness(context, item['name'] ?? 'this illness'),
+                onDismissed: (_) => _deleteIllness(userId, illnessId, item['name'] ?? 'Illness'),
+                child: _illnessCard(
+                  item,
+                  item['initials'] ?? '?',
+                  const Color(0xFFB2DFDB),
+                  item['name'] ?? '',
+                  item['since'] ?? '',
+                  item['meds'] ?? '0 medications',
+                  item['chip2'] ?? 'Ongoing',
+                  isCompleted ? const Color(0xFFE0E0E0) : const Color(0xFFBBDEFB),
+                  isCompleted: isCompleted,
+                ),
               ),
             );
           },
         );
       },
     );
+  }
+
+  Future<bool> _confirmDeleteIllness(BuildContext context, String name) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete illness?'),
+        content: Text(
+          'Delete "$name" and all medications linked to it? This cannot be undone.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.errorRed),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  Future<void> _deleteIllness(String userId, String illnessId, String name) async {
+    try {
+      await IllnessService().deleteIllness(userId: userId, illnessId: illnessId);
+      if (!mounted) return;
+      await showCareLankaSuccessNotification(
+        context,
+        title: 'Illness deleted',
+        subtitle: '$name and its medications were removed.',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      showFirebaseErrorSnackBar(context, firebaseErrorMessage(e));
+    }
   }
 
   Widget _illnessCard(
@@ -122,8 +178,9 @@ class _MedicationListScreenState extends State<MedicationListScreen> with Single
     String since,
     String chip1,
     String chip2,
-    Color chip2Bg,
-  ) {
+    Color chip2Bg, {
+    bool isCompleted = false,
+  }) {
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(16),
@@ -155,9 +212,23 @@ class _MedicationListScreenState extends State<MedicationListScreen> with Single
                             Expanded(
                               child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
                             ),
-                            Container(width: 8, height: 8, decoration: const BoxDecoration(color: AppColors.primaryTeal, shape: BoxShape.circle)),
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: isCompleted ? AppColors.textGrey : AppColors.primaryTeal,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
                             const SizedBox(width: 6),
-                            const Text('ACTIVE', style: TextStyle(color: AppColors.primaryTeal, fontWeight: FontWeight.w800, fontSize: 11)),
+                            Text(
+                              isCompleted ? 'COMPLETED' : 'ACTIVE',
+                              style: TextStyle(
+                                color: isCompleted ? AppColors.textGrey : AppColors.primaryTeal,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 11,
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 4),
