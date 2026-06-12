@@ -1,6 +1,7 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/design/carelanka_gradients.dart';
+import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/services/health_record_service.dart';
 import 'package:carelanka_app/widgets/carelanka/carelanka_bottom_nav.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
@@ -8,7 +9,7 @@ import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-/// CareLanka UI #35 — Health Records with checkup banner and document list.
+/// CareLanka UI #35 — Health Records with document list.
 class HealthRecordsScreen extends StatefulWidget {
   const HealthRecordsScreen({super.key});
 
@@ -183,36 +184,6 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.oliveBannerBg,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.oliveBanner.withValues(alpha: 0.25)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.warning_amber_rounded, color: AppColors.oliveBanner, size: 22),
-                      const SizedBox(width: 10),
-                      const Expanded(
-                        child: Text(
-                          "You haven't had a checkup in 180 days",
-                          style: TextStyle(color: AppColors.oliveBanner, fontWeight: FontWeight.w600, fontSize: 13),
-                        ),
-                      ),
-                      FilledButton(
-                        onPressed: () => Navigator.pushNamed(context, AppRoutes.addAppointment),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppColors.oliveBanner,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                        ),
-                        child: const Text('Schedule Now', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 18),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -259,7 +230,7 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
                     subtitle: 'Upload prescriptions, lab reports, and scans to keep everything in one place.',
                   )
                 else
-                  for (final r in records) _recordTile(context, r),
+                  for (final r in records) _recordTile(context, r, userId),
               ],
             ),
           ),
@@ -268,62 +239,135 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
     );
   }
 
-  Widget _recordTile(BuildContext context, Map<String, String> record) {
+  Widget _recordTile(BuildContext context, Map<String, String> record, String userId) {
     final style = _docStyle(record['documentType'] ?? record['tag'] ?? '');
+    final recordId = record['recordId'] ?? '';
+    final title = record['title'] ?? '${record['doctor']} — ${record['shortDate']}';
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        child: InkWell(
+      child: Dismissible(
+        key: ValueKey(recordId),
+        direction: DismissDirection.endToStart,
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 24),
+          decoration: BoxDecoration(
+            color: AppColors.errorRed,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
+        ),
+        confirmDismiss: (_) => _confirmDeleteRecord(context, title),
+        onDismissed: (_) => _deleteRecord(recordId),
+        child: Material(
+          color: Colors.white,
           borderRadius: BorderRadius.circular(14),
-          onTap: () => Navigator.pushNamed(context, AppRoutes.documentViewer, arguments: record),
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Row(
               children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(color: style.bg, borderRadius: BorderRadius.circular(12)),
-                  child: Icon(style.icon, color: style.color, size: 24),
-                ),
-                const SizedBox(width: 12),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        record['title'] ?? '${record['doctor']} — ${record['shortDate']}',
-                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${record['doctor']} • ${record['monthDay'] ?? record['date']}',
-                        style: const TextStyle(color: AppColors.textGrey, fontSize: 13),
-                      ),
-                      const SizedBox(height: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: style.bg,
-                          borderRadius: BorderRadius.circular(12),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () => Navigator.pushNamed(context, AppRoutes.documentViewer, arguments: record),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(color: style.bg, borderRadius: BorderRadius.circular(12)),
+                          child: Icon(style.icon, color: style.color, size: 24),
                         ),
-                        child: Text(
-                          (record['tag'] ?? 'RECORD').toUpperCase(),
-                          style: TextStyle(color: style.color, fontSize: 10, fontWeight: FontWeight.w800),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${record['doctor']} • ${record['monthDay'] ?? record['date']}',
+                                style: const TextStyle(color: AppColors.textGrey, fontSize: 13),
+                              ),
+                              const SizedBox(height: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: style.bg,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  (record['tag'] ?? 'RECORD').toUpperCase(),
+                                  style: TextStyle(color: style.color, fontSize: 10, fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-                const Icon(Icons.more_vert, color: AppColors.textGrey, size: 20),
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert, color: AppColors.textGrey, size: 20),
+                  padding: EdgeInsets.zero,
+                  onSelected: (value) {
+                    if (value == 'edit') {
+                      Navigator.pushNamed(context, AppRoutes.addRecord, arguments: record);
+                    }
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: 'edit',
+                      child: Row(
+                        children: [
+                          Icon(Icons.edit_outlined, size: 18, color: AppColors.navy),
+                          SizedBox(width: 10),
+                          Text('Edit', style: TextStyle(fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  Future<bool> _confirmDeleteRecord(BuildContext context, String title) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete record?'),
+        content: Text('Delete "$title"? This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.errorRed),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  Future<void> _deleteRecord(String recordId) async {
+    if (recordId.isEmpty) return;
+    try {
+      await HealthRecordService().deleteRecord(recordId);
+    } catch (e) {
+      if (!mounted) return;
+      showFirebaseErrorSnackBar(context, firebaseErrorMessage(e));
+    }
   }
 
   _DocStyle _docStyle(String type) {

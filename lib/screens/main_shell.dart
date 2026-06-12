@@ -1,7 +1,9 @@
 import 'package:carelanka_app/screens/family/family_screen.dart';
 import 'package:carelanka_app/screens/home/dashboard_screen.dart';
 import 'package:carelanka_app/screens/profile/profile_screen.dart';
+import 'package:carelanka_app/services/checkup_service.dart';
 import 'package:carelanka_app/widgets/carelanka/carelanka_bottom_nav.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 /// CareLanka shell: Home, Family, Profile (matches UI folder bottom navigation).
@@ -20,6 +22,13 @@ class _MainShellState extends State<MainShell> {
   void initState() {
     super.initState();
     _index = widget.initialIndex.clamp(0, 2);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _evaluateCheckupReminder());
+  }
+
+  Future<void> _evaluateCheckupReminder() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+    await CheckupService().evaluateForUser(userId);
   }
 
   @override

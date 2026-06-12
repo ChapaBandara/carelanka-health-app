@@ -30,8 +30,10 @@ class HealthRecordService {
     String dateStr = '';
     String shortDate = '';
     String monthDay = '';
+    int? visitMillis;
     if (visit is Timestamp) {
       final dt = visit.toDate();
+      visitMillis = dt.millisecondsSinceEpoch;
       dateStr = DateFormat('d MMM yyyy').format(dt);
       shortDate = DateFormat('MMM d').format(dt);
       monthDay = DateFormat('MMM d, yyyy').format(dt);
@@ -54,6 +56,7 @@ class HealthRecordService {
       'documentUrl': d['documentUrl'] as String? ?? '',
       'title': title,
       'linkedIllness': d['linkedIllness'] as String? ?? '',
+      if (visitMillis != null) 'visitDateMillis': '$visitMillis',
     };
   }
 
@@ -103,5 +106,40 @@ class HealthRecordService {
       'documentType': documentType,
       'createdAt': Timestamp.fromDate(DateTime.now()),
     });
+  }
+
+  Future<void> updateRecord({
+    required String recordId,
+    required String userId,
+    required DateTime visitDate,
+    required String doctorName,
+    required String hospital,
+    required String diagnosis,
+    required String notes,
+    required String documentType,
+    File? documentFile,
+    String? existingDocumentUrl,
+  }) async {
+    var documentUrl = existingDocumentUrl ?? '';
+    if (documentFile != null) {
+      final ref = _storage.ref().child('users/$userId/records/${DateTime.now().millisecondsSinceEpoch}');
+      await ref.putFile(documentFile);
+      documentUrl = await ref.getDownloadURL();
+    }
+
+    await _col.doc(recordId).update({
+      'visitDate': Timestamp.fromDate(visitDate),
+      'doctorName': doctorName,
+      'hospital': hospital,
+      'diagnosis': diagnosis,
+      'notes': notes,
+      'documentUrl': documentUrl,
+      'documentType': documentType,
+      'updatedAt': Timestamp.fromDate(DateTime.now()),
+    });
+  }
+
+  Future<void> deleteRecord(String recordId) async {
+    await _col.doc(recordId).delete();
   }
 }

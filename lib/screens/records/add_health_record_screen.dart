@@ -1,13 +1,17 @@
+import 'dart:io';
+
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
+import 'package:carelanka_app/services/checkup_service.dart';
 import 'package:carelanka_app/services/health_record_service.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
-/// CareLanka UI #38 / #39 — Add Health Record form with optional document attach.
+/// CareLanka UI #38 / #39 — Add or edit health record with optional document attach.
 class AddHealthRecordScreen extends StatefulWidget {
   const AddHealthRecordScreen({super.key});
 
@@ -24,6 +28,48 @@ class _AddHealthRecordScreenState extends State<AddHealthRecordScreen> {
   DateTime? _date;
   String _type = 'Lab Report';
   bool _saving = false;
+  File? _pickedFile;
+  String? _existingDocumentUrl;
+  String? _editRecordId;
+  bool _isEdit = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadEditArgs());
+  }
+
+  void _loadEditArgs() {
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is! Map<String, String>) return;
+
+    final millis = int.tryParse(args['visitDateMillis'] ?? '');
+    DateTime? visitDate;
+    if (millis != null) {
+      visitDate = DateTime.fromMillisecondsSinceEpoch(millis);
+    } else {
+      final parsed = DateFormat('MMM d, yyyy').tryParse(args['monthDay'] ?? '');
+      visitDate = parsed;
+    }
+
+    final doctor = args['doctor'] ?? '';
+    final hospital = args['place'] ?? '';
+    final doctorHospital = hospital.isNotEmpty ? '$doctor, $hospital' : doctor;
+
+    setState(() {
+      _isEdit = true;
+      _editRecordId = args['recordId'];
+      _date = visitDate;
+      if (visitDate != null) {
+        _dateDisplay.text = DateFormat('MMM d, yyyy').format(visitDate);
+      }
+      _doctorHospital.text = doctorHospital;
+      _diagnosis.text = args['diagnosis'] ?? '';
+      _notes.text = args['notes'] ?? '';
+      _type = args['documentType'] ?? args['tag'] ?? 'Lab Report';
+      _existingDocumentUrl = args['documentUrl'];
+    });
+  }
 
   @override
   void dispose() {
@@ -34,28 +80,58 @@ class _AddHealthRecordScreenState extends State<AddHealthRecordScreen> {
     super.dispose();
   }
 
+  Future<void> _pickDocument() async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+    if (picked != null) {
+      setState(() => _pickedFile = File(picked.path));
+    }
+  }
+
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false) || _saving) return;
     setState(() => _saving = true);
     try {
+      final userId = FirebaseAuth.instance.currentUser!.uid;
       final parts = _doctorHospital.text.trim().split(',');
       final doctor = parts.isNotEmpty ? parts.first.trim() : _doctorHospital.text.trim();
       final hospital = parts.length > 1 ? parts.sublist(1).join(',').trim() : '';
 
-      await HealthRecordService().addRecord(
-        userId: FirebaseAuth.instance.currentUser!.uid,
-        visitDate: _date!,
-        doctorName: doctor,
-        hospital: hospital.isEmpty ? doctor : hospital,
-        diagnosis: _diagnosis.text.trim(),
-        notes: _notes.text.trim(),
-        documentType: _type,
-      );
+      if (_isEdit && _editRecordId != null) {
+        await HealthRecordService().updateRecord(
+          recordId: _editRecordId!,
+          userId: userId,
+          visitDate: _date!,
+          doctorName: doctor,
+          hospital: hospital.isEmpty ? doctor : hospital,
+          diagnosis: _diagnosis.text.trim(),
+          notes: _notes.text.trim(),
+          documentType: _type,
+          documentFile: _pickedFile,
+          existingDocumentUrl: _existingDocumentUrl,
+        );
+      } else {
+        await HealthRecordService().addRecord(
+          userId: userId,
+          visitDate: _date!,
+          doctorName: doctor,
+          hospital: hospital.isEmpty ? doctor : hospital,
+          diagnosis: _diagnosis.text.trim(),
+          notes: _notes.text.trim(),
+          documentType: _type,
+          documentFile: _pickedFile,
+        );
+      }
+
+      await CheckupService().evaluateForUser(userId);
+
       if (!mounted) return;
       await showCareLankaSuccessNotification(
         context,
-        title: 'Health record saved',
-        subtitle: 'Your record has been saved to the library and linked to your timeline.',
+        title: _isEdit ? 'Health record updated' : 'Health record saved',
+        subtitle: _isEdit
+            ? 'Your changes have been saved.'
+            : 'Your record has been saved to the library and linked to your timeline.',
       );
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -96,6 +172,20 @@ class _AddHealthRecordScreenState extends State<AddHealthRecordScreen> {
     );
   }
 
+  String get _attachmentLabel {
+    if (_pickedFile != null) {
+      return _pickedFile!.path.split('/').last;
+    }
+    if (_existingDocumentUrl != null && _existingDocumentUrl!.isNotEmpty) {
+      final uri = Uri.tryParse(_existingDocumentUrl!);
+      if (uri != null && uri.pathSegments.isNotEmpty) {
+        return Uri.decodeComponent(uri.pathSegments.last);
+      }
+      return 'Existing attachment';
+    }
+    return 'Tap to upload';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -107,7 +197,10 @@ class _AddHealthRecordScreenState extends State<AddHealthRecordScreen> {
           icon: const Icon(Icons.arrow_back_ios_new, size: 20),
           onPressed: () => Navigator.maybePop(context),
         ),
-        title: const Text('Add Health Record', style: TextStyle(fontWeight: FontWeight.w700)),
+        title: Text(
+          _isEdit ? 'Edit Health Record' : 'Add Health Record',
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
         centerTitle: false,
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
@@ -191,39 +284,56 @@ class _AddHealthRecordScreenState extends State<AddHealthRecordScreen> {
                 const SizedBox(height: 14),
                 Row(
                   children: [
-                    Container(
-                      width: 88,
-                      height: 88,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFDEE2E6)),
-                      ),
-                      child: const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.science_outlined, color: AppColors.primaryTeal, size: 28),
-                          SizedBox(height: 4),
-                          Text('CBC.pdf', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Container(
+                    if (_pickedFile != null || (_existingDocumentUrl?.isNotEmpty ?? false))
+                      Container(
+                        width: 88,
                         height: 88,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFF3F0FF),
+                          color: Colors.white,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFFD1C4E9), style: BorderStyle.solid),
+                          border: Border.all(color: const Color(0xFFDEE2E6)),
                         ),
-                        child: const Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.cloud_upload_outlined, color: AppColors.navy, size: 28),
-                            SizedBox(height: 4),
-                            Text('Tap to upload', style: TextStyle(color: AppColors.textGrey, fontSize: 12)),
-                          ],
+                        child: _pickedFile != null
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(11),
+                                child: Image.file(_pickedFile!, fit: BoxFit.cover),
+                              )
+                            : const Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.insert_drive_file_outlined, color: AppColors.primaryTeal, size: 28),
+                                  SizedBox(height: 4),
+                                  Text('File', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                                ],
+                              ),
+                      ),
+                    if (_pickedFile != null || (_existingDocumentUrl?.isNotEmpty ?? false))
+                      const SizedBox(width: 12),
+                    Expanded(
+                      child: InkWell(
+                        onTap: _pickDocument,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          height: 88,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF3F0FF),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFD1C4E9)),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.cloud_upload_outlined, color: AppColors.navy, size: 28),
+                              const SizedBox(height: 4),
+                              Text(
+                                _attachmentLabel,
+                                style: const TextStyle(color: AppColors.textGrey, fontSize: 12),
+                                textAlign: TextAlign.center,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -231,7 +341,7 @@ class _AddHealthRecordScreenState extends State<AddHealthRecordScreen> {
                 ),
                 const SizedBox(height: 28),
                 GradientPrimaryButton(
-                  label: _saving ? 'Saving...' : 'Save Record',
+                  label: _saving ? 'Saving...' : (_isEdit ? 'Update Record' : 'Save Record'),
                   onPressed: _saving ? null : _save,
                 ),
               ],

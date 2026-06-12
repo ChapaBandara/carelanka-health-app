@@ -17,7 +17,14 @@ class UserService {
 
   static Map<String, dynamic> defaultNotificationPreferences() => {
         'medicationReminders': true,
+        'missedDoseAlerts': true,
         'appointments': true,
+        'checkupSuggestions': true,
+        'drugConflictWarnings': true,
+        'weeklySummary': true,
+        'lowStockReminders': true,
+        'quietHours': true,
+        'snoozeDuration': '15 minutes',
         'alerts': true,
         'push': true,
         'sms': true,

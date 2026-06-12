@@ -1,6 +1,7 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/services/appointment_service.dart';
+import 'package:carelanka_app/services/checkup_service.dart';
 import 'package:carelanka_app/services/notification_service.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
@@ -94,6 +95,8 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
       } catch (_) {
         reminderNote = 'Appointment saved. Enable notification permissions for reminders.';
       }
+
+      await CheckupService().evaluateForUser(userId);
 
       if (!mounted) return;
       await showCareLankaSuccessNotification(

@@ -131,24 +131,25 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> with SingleTick
           BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 10, offset: const Offset(0, 3)),
         ],
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 56,
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            decoration: const BoxDecoration(
-              color: AppColors.primaryTeal,
-              borderRadius: BorderRadius.horizontal(left: Radius.circular(14)),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: 56,
+              decoration: const BoxDecoration(
+                color: AppColors.primaryTeal,
+                borderRadius: BorderRadius.horizontal(left: Radius.circular(14)),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(day, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18)),
+                  Text(mon, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
+                  Text(year, style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 10)),
+                ],
+              ),
             ),
-            child: Column(
-              children: [
-                Text(day, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18)),
-                Text(mon, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
-                Text(year, style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 10)),
-              ],
-            ),
-          ),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
@@ -217,7 +218,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> with SingleTick
               ),
             ),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }

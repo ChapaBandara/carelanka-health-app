@@ -4,6 +4,7 @@ import 'package:carelanka_app/core/utils/greeting_helper.dart';
 import 'package:carelanka_app/core/utils/medication_schedule_helper.dart';
 import 'package:carelanka_app/providers/auth_provider.dart';
 import 'package:carelanka_app/providers/user_data_provider.dart';
+import 'package:carelanka_app/services/alert_service.dart';
 import 'package:carelanka_app/services/appointment_service.dart';
 import 'package:carelanka_app/services/illness_service.dart';
 import 'package:carelanka_app/services/medication_service.dart';
@@ -91,32 +92,7 @@ class DashboardScreen extends StatelessWidget {
                   const SizedBox(height: 24),
                   _upcomingAppointmentsSection(context),
                   const SizedBox(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Recent Alerts', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                      TextButton(
-                        onPressed: () => Navigator.pushNamed(context, AppRoutes.alerts),
-                        child: const Text('See All', style: TextStyle(fontWeight: FontWeight.w600)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  if (data.hasAlerts)
-                    ...data.alerts.map((a) => Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: _alertRow(
-                            AppColors.errorRed,
-                            a['title'] ?? '',
-                            a['time'] ?? '',
-                          ),
-                        ))
-                  else
-                    const EmptyListPlaceholder(
-                      icon: Icons.notifications_none_outlined,
-                      title: 'No alerts yet',
-                      subtitle: 'Warnings and reminders will appear here.',
-                    ),
+                  _recentAlertsSection(context),
                 ],
               ],
             ),
@@ -461,33 +437,34 @@ class DashboardScreen extends StatelessWidget {
           BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 10, offset: const Offset(0, 3)),
         ],
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 56,
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            decoration: const BoxDecoration(
-              color: AppColors.primaryTeal,
-              borderRadius: BorderRadius.horizontal(left: Radius.circular(14)),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: 56,
+              decoration: const BoxDecoration(
+                color: AppColors.primaryTeal,
+                borderRadius: BorderRadius.horizontal(left: Radius.circular(14)),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    appointment['day'] ?? '—',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18),
+                  ),
+                  Text(
+                    appointment['month'] ?? '',
+                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                  ),
+                  Text(
+                    appointment['year'] ?? '',
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 10),
+                  ),
+                ],
+              ),
             ),
-            child: Column(
-              children: [
-                Text(
-                  appointment['day'] ?? '—',
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18),
-                ),
-                Text(
-                  appointment['month'] ?? '',
-                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
-                ),
-                Text(
-                  appointment['year'] ?? '',
-                  style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 10),
-                ),
-              ],
-            ),
-          ),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
@@ -546,9 +523,76 @@ class DashboardScreen extends StatelessWidget {
               ),
             ),
           ),
-        ],
+          ],
+        ),
       ),
     );
+  }
+
+  Widget _recentAlertsSection(BuildContext context) {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Recent Alerts', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            TextButton(
+              onPressed: () => Navigator.pushNamed(context, AppRoutes.alerts),
+              child: const Text('See All', style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (userId == null)
+          const EmptyListPlaceholder(
+            icon: Icons.notifications_none_outlined,
+            title: 'No alerts yet',
+            subtitle: 'Warnings and reminders will appear here.',
+          )
+        else
+          StreamBuilder<List<Map<String, String>>>(
+            stream: AlertService().watchAlertMaps(userId),
+            builder: (context, snapshot) {
+              final alerts = (snapshot.data ?? []).take(3).toList();
+              if (alerts.isEmpty) {
+                return const EmptyListPlaceholder(
+                  icon: Icons.notifications_none_outlined,
+                  title: 'No alerts yet',
+                  subtitle: 'Warnings and reminders will appear here.',
+                );
+              }
+              return Column(
+                children: [
+                  for (final a in alerts)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _alertRow(
+                        _alertAccent(a['accent'] ?? 'teal'),
+                        a['title'] ?? '',
+                        a['time'] ?? '',
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  Color _alertAccent(String key) {
+    switch (key) {
+      case 'red':
+        return AppColors.errorRed;
+      case 'orange':
+        return const Color(0xFFFF9800);
+      case 'purple':
+        return AppColors.purpleAccent;
+      default:
+        return AppColors.primaryTeal;
+    }
   }
 
   Widget _alertRow(Color accent, String title, String time) {

@@ -152,4 +152,23 @@ class NotificationService {
     }
     return scheduled;
   }
+
+  Future<void> showCheckupSuggestion({required int daysSinceCheckup}) async {
+    await initialize();
+    const id = 900001;
+    await _plugin.show(
+      id: id,
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'checkup_suggestions',
+          'Checkup Suggestions',
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(),
+      ),
+      title: 'Checkup reminder',
+      body: "You haven't had a checkup in $daysSinceCheckup days. Tap to schedule a visit.",
+    );
+  }
 }

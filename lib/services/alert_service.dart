@@ -70,4 +70,40 @@ class AlertService {
   Future<void> markAsRead(String alertId) async {
     await _col.doc(alertId).update({'read': true});
   }
+
+  Future<bool> hasUnreadCheckupAlert(String userId) async {
+    final snap = await _col.where('userId', isEqualTo: userId).get();
+    return snap.docs.any((d) {
+      final data = d.data();
+      return data['type'] == 'checkup' && data['read'] != true;
+    });
+  }
+
+  Future<void> createCheckupAlert({
+    required String userId,
+    required int daysSinceCheckup,
+  }) async {
+    final ref = _col.doc();
+    await ref.set({
+      'userId': userId,
+      'type': 'checkup',
+      'message': "You haven't had a checkup in $daysSinceCheckup days. Schedule a visit with your doctor.",
+      'read': false,
+      'createdAt': Timestamp.fromDate(DateTime.now()),
+    });
+  }
+
+  Future<void> dismissUnreadCheckupAlerts(String userId) async {
+    final snap = await _col.where('userId', isEqualTo: userId).get();
+    final unread = snap.docs.where((d) {
+      final data = d.data();
+      return data['type'] == 'checkup' && data['read'] != true;
+    });
+    if (unread.isEmpty) return;
+    final batch = _firestore.batch();
+    for (final doc in unread) {
+      batch.update(doc.reference, {'read': true});
+    }
+    await batch.commit();
+  }
 }
