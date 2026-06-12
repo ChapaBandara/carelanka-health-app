@@ -48,4 +48,8 @@ class AllergyService {
       'createdAt': Timestamp.fromDate(DateTime.now()),
     });
   }
+
+  Future<void> deleteAllergy(String allergyId) async {
+    await _col.doc(allergyId).delete();
+  }
 }

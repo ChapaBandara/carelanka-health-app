@@ -4,7 +4,7 @@ import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/providers/auth_provider.dart';
 import 'package:carelanka_app/services/family_service.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
-import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
+import 'package:carelanka_app/widgets/carelanka/carelanka_success_sheet.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -65,13 +65,18 @@ class _AddDependentScreenState extends State<AddDependentScreen> {
     }
 
     if (!mounted) return;
-    showFirebaseSuccessSnackBar(context, 'Dependent profile created');
-    await showCareLankaSuccessNotification(
+    final relationship = _rel.text.trim().isEmpty ? 'Dependent' : _rel.text.trim();
+    await showCareLankaSuccessSheet(
       context,
-      title: 'Family member added',
-      subtitle: 'You can now manage medications and records for this dependent profile.',
+      icon: Icons.person_add_alt_1_rounded,
+      title: 'Family Member Added!',
+      message: '${_name.text.trim()} has been added to your family health profile.',
+      chipLabel: relationship,
+      primaryLabel: 'Add Medications for ${_name.text.trim().split(' ').first}',
+      onPrimary: () => Navigator.pop(context),
+      secondaryLabel: 'Done',
+      onSecondary: () => Navigator.pop(context),
     );
-    if (mounted) Navigator.pop(context);
   }
 
   @override

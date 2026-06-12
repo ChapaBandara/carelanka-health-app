@@ -4,6 +4,10 @@ import 'package:carelanka_app/core/design/carelanka_gradients.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/providers/auth_provider.dart';
 import 'package:carelanka_app/providers/user_data_provider.dart';
+import 'package:carelanka_app/services/family_service.dart';
+import 'package:carelanka_app/services/health_record_service.dart';
+import 'package:carelanka_app/services/medication_service.dart';
+import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -19,9 +23,7 @@ Future<void> _handleDeleteAccount(BuildContext context) async {
     context: context,
     builder: (ctx) => AlertDialog(
       title: const Text('Delete account?'),
-      content: const Text(
-        'This permanently removes your CareLanka account and health data. This action cannot be undone.',
-      ),
+      content: const Text('This permanently removes your CareLanka account and health data. This action cannot be undone.'),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
         TextButton(
@@ -40,17 +42,13 @@ Future<void> _handleDeleteAccount(BuildContext context) async {
       title: const Text('Confirm with password'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text('Enter the password for $email to delete your account.', style: TextStyle(color: Colors.grey.shade700)),
           const SizedBox(height: 16),
           TextField(
             controller: passwordController,
             obscureText: true,
-            decoration: const InputDecoration(
-              labelText: 'Password',
-              border: OutlineInputBorder(),
-            ),
+            decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder()),
           ),
         ],
       ),
@@ -79,24 +77,20 @@ Future<void> _handleDeleteAccount(BuildContext context) async {
 
   if (!context.mounted) return;
   context.read<UserDataProvider>().resetForOwner();
-  if (!context.mounted) return;
-
   auth.justDeletedAccount = true;
-  Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(
-    AppRoutes.welcome,
-    (_) => false,
-  );
+  Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(AppRoutes.welcome, (_) => false);
 }
 
+/// CareLanka UI #50 — My Profile screen.
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    final data = context.watch<UserDataProvider>();
     final p = auth.profile;
     final isDependent = p?.isDependent ?? false;
+    final userId = FirebaseAuth.instance.currentUser!.uid;
 
     final menu = isDependent
         ? [
@@ -107,17 +101,15 @@ class ProfileScreen extends StatelessWidget {
         : [
             (Icons.shield_outlined, 'Allergy Profile', AppRoutes.allergies),
             (Icons.notifications_outlined, 'Notification Preferences', AppRoutes.notificationSettings),
-            (Icons.password_outlined, 'Change Password', AppRoutes.changePassword),
             (Icons.lock_outline, 'Privacy and Security', AppRoutes.privacy),
             (Icons.help_outline, 'Help and Support', AppRoutes.help),
-            (Icons.flag_outlined, 'Report a Problem', AppRoutes.reportProblem),
             (Icons.info_outline, 'About CareLanka', AppRoutes.about),
           ];
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('My Profile'),
+        title: const Text('My Profile', style: TextStyle(fontWeight: FontWeight.w700)),
         centerTitle: true,
         actions: [
           if (!isDependent)
@@ -134,9 +126,7 @@ class ProfileScreen extends StatelessWidget {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(20),
                 gradient: CareLankaGradients.profileHeader,
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 16, offset: const Offset(0, 8)),
-                ],
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 16, offset: const Offset(0, 8))],
               ),
               child: Column(
                 children: [
@@ -146,9 +136,7 @@ class ProfileScreen extends StatelessWidget {
                     child: CircleAvatar(
                       radius: 44,
                       backgroundColor: const Color(0x33000000),
-                      backgroundImage: (p?.profileImageUrl?.isNotEmpty ?? false)
-                          ? NetworkImage(p!.profileImageUrl!)
-                          : null,
+                      backgroundImage: (p?.profileImageUrl?.isNotEmpty ?? false) ? NetworkImage(p!.profileImageUrl!) : null,
                       child: (p?.profileImageUrl?.isNotEmpty ?? false)
                           ? null
                           : Text(p?.initials ?? '?', style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w700)),
@@ -158,20 +146,39 @@ class ProfileScreen extends StatelessWidget {
                   Text(p?.fullName ?? '', style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700)),
                   const SizedBox(height: 6),
                   Text(p?.email ?? '', style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                  Text(p?.phone.isNotEmpty == true ? '+94 ${p!.phone}' : '', style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                  if (p?.phone.isNotEmpty == true)
+                    Text('+94 ${p!.phone}', style: const TextStyle(color: Colors.white70, fontSize: 13)),
                 ],
               ),
             ),
             if (!isDependent) ...[
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(child: _statCard(Icons.medication_rounded, const Color(0xFFBBDEFB), '${data.medications.length}', 'Active Meds')),
-                  const SizedBox(width: 10),
-                  Expanded(child: _statCard(Icons.folder_open, const Color(0xFFC8E6C9), '${data.records.length}', 'Records')),
-                  const SizedBox(width: 10),
-                  Expanded(child: _statCard(Icons.people_outline, const Color(0xFFFFF59D), '${data.familyMembers.length}', 'Family')),
-                ],
+              StreamBuilder(
+                stream: MedicationService().watchMedications(userId),
+                builder: (context, medSnap) {
+                  return StreamBuilder(
+                    stream: HealthRecordService().watchRecordMaps(userId),
+                    builder: (context, recSnap) {
+                      return StreamBuilder(
+                        stream: FamilyService().watchFamilyMaps(userId),
+                        builder: (context, famSnap) {
+                          final medCount = (medSnap.data ?? []).where((m) => m['active'] == true).length;
+                          final recCount = recSnap.data?.length ?? 0;
+                          final famCount = famSnap.data?.length ?? 0;
+                          return Row(
+                            children: [
+                              Expanded(child: _statCard(Icons.medication_rounded, const Color(0xFFBBDEFB), '$medCount', 'Active Meds')),
+                              const SizedBox(width: 10),
+                              Expanded(child: _statCard(Icons.folder_open, const Color(0xFFC8E6C9), '$recCount', 'Records')),
+                              const SizedBox(width: 10),
+                              Expanded(child: _statCard(Icons.people_outline, const Color(0xFFFFF59D), '$famCount', 'Family')),
+                            ],
+                          );
+                        },
+                      );
+                    },
+                  );
+                },
               ),
             ],
             const SizedBox(height: 16),
@@ -193,44 +200,45 @@ class ProfileScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
-            Card(
-              elevation: 0.3,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isDependent ? 'Linked primary account' : 'Linked Family Accounts',
-                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+            StreamBuilder<List<Map<String, String>>>(
+              stream: FamilyService().watchFamilyMaps(userId),
+              builder: (context, snapshot) {
+                final members = snapshot.data ?? [];
+                return Card(
+                  elevation: 0.3,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          isDependent ? 'Linked primary account' : 'Linked Family Accounts',
+                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: AppColors.navy),
+                        ),
+                        const SizedBox(height: 12),
+                        if (members.isEmpty)
+                          Text(
+                            isDependent ? 'No link on file.' : 'No linked accounts yet.',
+                            style: const TextStyle(color: AppColors.textGrey),
+                          )
+                        else
+                          ...members.map((m) => Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: _linkedRow(m['initials'] ?? '?', const Color(0xFFB2DFDB), m['name'] ?? '', m['meta'] ?? ''),
+                              )),
+                        const SizedBox(height: 12),
+                        Center(
+                          child: TextButton(
+                            onPressed: () => Navigator.pushNamed(context, AppRoutes.family),
+                            child: const Text('Manage Account Links', style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.navy)),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 12),
-                    if (data.familyMembers.isEmpty)
-                      Text(
-                        isDependent ? 'No link on file.' : 'No linked accounts yet.',
-                        style: const TextStyle(color: AppColors.textGrey),
-                      )
-                    else
-                      ...data.familyMembers.map((m) => Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: _linkedRow(
-                              m['initials'] ?? '?',
-                              const Color(0xFFB2DFDB),
-                              m['name'] ?? '',
-                              m['meta'] ?? '',
-                            ),
-                          )),
-                    const SizedBox(height: 12),
-                    Center(
-                      child: TextButton(
-                        onPressed: () => Navigator.pushNamed(context, AppRoutes.family),
-                        child: const Text('Manage Account Links', style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.navy)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 20),
             OutlinedButton(
@@ -266,9 +274,7 @@ class ProfileScreen extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2)),
-        ],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
       ),
       child: Column(
         children: [
@@ -284,10 +290,7 @@ class ProfileScreen extends StatelessWidget {
   Widget _linkedRow(String initials, Color bg, String name, String rel) {
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        border: Border.all(color: const Color(0xFFE0E0E0)),
-        borderRadius: BorderRadius.circular(12),
-      ),
+      decoration: BoxDecoration(border: Border.all(color: const Color(0xFFE0E0E0)), borderRadius: BorderRadius.circular(12)),
       child: Row(
         children: [
           CircleAvatar(backgroundColor: bg, child: Text(initials, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13))),

@@ -57,13 +57,12 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> with SingleTick
       ),
       bottomNavigationBar: const CareLankaBottomNav(currentIndex: 0),
       floatingActionButton: Padding(
-        padding: const EdgeInsets.only(left: 20, right: 20, bottom: 4),
+        padding: const EdgeInsets.only(bottom: 8, right: 4),
         child: GradientWideFab(
           label: 'Add Appointment',
           onPressed: () => Navigator.pushNamed(context, AppRoutes.addAppointment),
         ),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       body: TabBarView(
         controller: _tab,
         children: [

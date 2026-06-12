@@ -1,19 +1,18 @@
 import 'dart:io';
 
 import 'package:carelanka_app/core/constants/app_colors.dart';
-import 'package:carelanka_app/core/constants/health_profile_options.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/core/utils/date_helpers.dart';
 import 'package:carelanka_app/providers/auth_provider.dart';
 import 'package:carelanka_app/services/user_service.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
-import 'package:carelanka_app/widgets/carelanka/labeled_text_field.dart';
 import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
+/// CareLanka UI #51 — Edit My Profile screen.
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
 
@@ -31,7 +30,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController _emergencyPhone;
   DateTime? _dob;
   String? _gender;
-  String? _bloodType;
   String? _profileImageUrl;
   File? _pendingImageFile;
   bool _saving = false;
@@ -47,8 +45,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _dobDisplay = TextEditingController(text: _dob == null ? '' : DateHelpers.formatDmySlashes(_dob!));
     _emergencyName = TextEditingController(text: p?.emergencyContactName ?? '');
     _emergencyPhone = TextEditingController(text: p?.emergencyContactPhone ?? '');
-    _gender = p?.gender;
-    _bloodType = p?.bloodType;
+    _gender = p?.gender ?? 'Male';
     _profileImageUrl = p?.profileImageUrl;
     _loadFromFirestore();
   }
@@ -67,41 +64,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         _dobDisplay.text = _dob == null ? '' : DateHelpers.formatDmySlashes(_dob!);
         _emergencyName.text = loaded.emergencyContactName ?? '';
         _emergencyPhone.text = loaded.emergencyContactPhone ?? '';
-        _gender = loaded.gender;
-        _bloodType = loaded.bloodType;
+        _gender = loaded.gender ?? _gender;
         _profileImageUrl = loaded.profileImageUrl;
       });
     } catch (_) {}
   }
 
   Future<void> _pickProfileImage() async {
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('Choose from gallery'),
-              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_camera_outlined),
-              title: const Text('Take a photo'),
-              onTap: () => Navigator.pop(ctx, ImageSource.camera),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (source == null) return;
-
-    final picked = await ImagePicker().pickImage(source: source, maxWidth: 1024, imageQuality: 85);
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 1024, imageQuality: 85);
     if (picked == null || !mounted) return;
-    setState(() {
-      _pendingImageFile = File(picked.path);
-    });
+    setState(() => _pendingImageFile = File(picked.path));
   }
 
   @override
@@ -113,6 +85,34 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _emergencyName.dispose();
     _emergencyPhone.dispose();
     super.dispose();
+  }
+
+  InputDecoration _decoration({Widget? prefix, Widget? suffix}) {
+    return InputDecoration(
+      filled: true,
+      fillColor: Colors.white,
+      prefixIcon: prefix,
+      suffixIcon: suffix,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFDEE2E6))),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFDEE2E6))),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.primaryTeal, width: 1.5)),
+    );
+  }
+
+  Widget _label(String text, {String? hint}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Text(text, style: const TextStyle(fontWeight: FontWeight.w600)),
+          if (hint != null) ...[
+            const SizedBox(width: 6),
+            Text(hint, style: const TextStyle(color: AppColors.textGrey, fontSize: 12)),
+          ],
+        ],
+      ),
+    );
   }
 
   Future<void> _save() async {
@@ -132,11 +132,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       await auth.updateProfile(
         current.copyWith(
           fullName: _name.text.trim(),
-          email: _email.text.trim(),
           phone: _phone.text.trim(),
           dateOfBirth: _dob,
           gender: _gender,
-          bloodType: _bloodType,
           profileImageUrl: imageUrl,
           emergencyContactName: _emergencyName.text.trim(),
           emergencyContactPhone: _emergencyPhone.text.trim(),
@@ -162,16 +160,41 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       return CircleAvatar(radius: 48, backgroundImage: FileImage(_pendingImageFile!));
     }
     if (_profileImageUrl != null && _profileImageUrl!.isNotEmpty) {
-      return CircleAvatar(
-        radius: 48,
-        backgroundImage: NetworkImage(_profileImageUrl!),
-        onBackgroundImageError: (_, _) {},
-        child: _profileImageUrl!.isEmpty ? Text(initials) : null,
-      );
+      return CircleAvatar(radius: 48, backgroundImage: NetworkImage(_profileImageUrl!));
     }
-    return CircleAvatar(
-      radius: 48,
-      child: Text(initials, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
+    return CircleAvatar(radius: 48, child: Text(initials, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800)));
+  }
+
+  Widget _genderOption(String value) {
+    final selected = _gender == value;
+    return Expanded(
+      child: Material(
+        color: selected ? const Color(0xFFE3F2FD) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: () => setState(() => _gender = value),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: selected ? const Color(0xFF42A5F5) : const Color(0xFFDEE2E6), width: selected ? 1.5 : 1),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  selected ? Icons.radio_button_checked : Icons.radio_button_off,
+                  color: selected ? const Color(0xFF1565C0) : AppColors.textGrey,
+                  size: 20,
+                ),
+                const SizedBox(width: 6),
+                Text(value, style: TextStyle(fontWeight: selected ? FontWeight.w700 : FontWeight.w500, color: selected ? const Color(0xFF1565C0) : AppColors.textDark)),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -182,16 +205,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, size: 20),
-          onPressed: () => Navigator.maybePop(context),
-        ),
-        title: const Text('Edit Profile'),
-        centerTitle: true,
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        leading: IconButton(icon: const Icon(Icons.arrow_back_ios_new, size: 20), onPressed: () => Navigator.maybePop(context)),
+        title: const Text('Edit Profile', style: TextStyle(fontWeight: FontWeight.w700)),
+        centerTitle: false,
+        bottom: PreferredSize(preferredSize: const Size.fromHeight(1), child: Container(height: 1, color: const Color(0xFFEEEEEE))),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(20),
           child: Form(
             key: _formKey,
             child: Column(
@@ -208,12 +231,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           color: AppColors.primaryTeal,
                           shape: const CircleBorder(),
                           child: InkWell(
-                            customBorder: const CircleBorder(),
                             onTap: _pickProfileImage,
-                            child: const Padding(
-                              padding: EdgeInsets.all(8),
-                              child: Icon(Icons.camera_alt, color: Colors.white, size: 20),
-                            ),
+                            customBorder: const CircleBorder(),
+                            child: const Padding(padding: EdgeInsets.all(8), child: Icon(Icons.camera_alt, color: Colors.white, size: 20)),
                           ),
                         ),
                       ),
@@ -222,73 +242,25 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 ),
                 const SizedBox(height: 8),
                 Center(
-                  child: TextButton(
-                    onPressed: _pickProfileImage,
-                    child: const Text('Change profile photo', style: TextStyle(fontWeight: FontWeight.w600)),
-                  ),
+                  child: TextButton(onPressed: _pickProfileImage, child: const Text('Change Picture', style: TextStyle(color: AppColors.primaryTeal, fontWeight: FontWeight.w600))),
                 ),
                 const SizedBox(height: 16),
-                LabeledIconField(
-                  label: 'Full name',
-                  controller: _name,
-                  prefixIcon: Icons.person_outline,
-                  validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
-                ),
+                _label('Full Name'),
+                TextFormField(controller: _name, decoration: _decoration(prefix: const Icon(Icons.person_outline, color: AppColors.textGrey)), validator: (v) => (v == null || v.isEmpty) ? 'Required' : null),
                 const SizedBox(height: 18),
-                LabeledIconField(
-                  label: 'Email',
-                  controller: _email,
-                  prefixIcon: Icons.email_outlined,
-                  keyboardType: TextInputType.emailAddress,
-                ),
+                _label('Phone Number'),
+                TextFormField(controller: _phone, keyboardType: TextInputType.phone, decoration: _decoration(prefix: const Icon(Icons.phone_outlined, color: AppColors.textGrey))),
                 const SizedBox(height: 18),
-                LabeledIconField(
-                  label: 'Phone',
-                  controller: _phone,
-                  prefixIcon: Icons.phone_outlined,
-                  keyboardType: TextInputType.phone,
-                ),
+                _label('Email Address', hint: '(Cannot be changed)'),
+                TextFormField(controller: _email, readOnly: true, style: const TextStyle(color: AppColors.textGrey), decoration: _decoration(prefix: const Icon(Icons.email_outlined, color: AppColors.textGrey)).copyWith(fillColor: const Color(0xFFF5F5F5))),
                 const SizedBox(height: 18),
-                const Text('Gender', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  initialValue: _gender,
-                  decoration: InputDecoration(
-                    filled: true,
-                    fillColor: Colors.white,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  hint: const Text('Select gender'),
-                  items: HealthProfileOptions.genders.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
-                  onChanged: (v) => setState(() => _gender = v),
-                ),
-                const SizedBox(height: 18),
-                const Text('Blood Type', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  initialValue: _bloodType,
-                  decoration: InputDecoration(
-                    filled: true,
-                    fillColor: Colors.white,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  hint: const Text('Select blood type'),
-                  items: HealthProfileOptions.bloodTypes.map((b) => DropdownMenuItem(value: b, child: Text(b))).toList(),
-                  onChanged: (v) => setState(() => _bloodType = v),
-                ),
-                const SizedBox(height: 18),
-                LabeledIconField(
-                  label: 'Date of birth',
+                _label('Date of Birth'),
+                TextFormField(
                   readOnly: true,
                   controller: _dobDisplay,
-                  prefixIcon: Icons.calendar_today_outlined,
+                  decoration: _decoration(prefix: const Icon(Icons.calendar_today_outlined, color: AppColors.textGrey), suffix: const Icon(Icons.keyboard_arrow_down, color: AppColors.textGrey)),
                   onTap: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: _dob ?? DateTime(1990),
-                      firstDate: DateTime(1900),
-                      lastDate: DateTime.now(),
-                    );
+                    final picked = await showDatePicker(context: context, initialDate: _dob ?? DateTime(1990), firstDate: DateTime(1900), lastDate: DateTime.now());
                     if (picked != null) {
                       setState(() {
                         _dob = picked;
@@ -298,25 +270,43 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   },
                 ),
                 const SizedBox(height: 18),
-                const Text('Emergency contact', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-                const SizedBox(height: 12),
-                LabeledIconField(
-                  label: 'Contact name',
-                  controller: _emergencyName,
-                  prefixIcon: Icons.contact_emergency_outlined,
-                  hint: 'e.g. Spouse or parent',
-                ),
+                _label('Gender'),
+                Row(children: [_genderOption('Male'), const SizedBox(width: 10), _genderOption('Female')]),
                 const SizedBox(height: 18),
-                LabeledIconField(
-                  label: 'Contact phone',
-                  controller: _emergencyPhone,
-                  prefixIcon: Icons.phone_in_talk_outlined,
-                  keyboardType: TextInputType.phone,
-                  hint: '+94 77 123 4567',
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Emergency Contact', style: TextStyle(fontWeight: FontWeight.w700)),
+                    TextButton(onPressed: () {}, child: const Text('Select from Contacts', style: TextStyle(color: Color(0xFF1565C0), fontWeight: FontWeight.w600))),
+                  ],
                 ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFDEE2E6))),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.favorite_border, color: AppColors.errorRed),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(_emergencyName.text.isEmpty ? 'Add emergency contact' : '${_emergencyName.text} (${_emergencyPhone.text.isNotEmpty ? _emergencyPhone.text : 'Son'})', style: const TextStyle(fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                      ),
+                      IconButton(onPressed: () {}, icon: const Icon(Icons.edit_outlined, color: AppColors.textGrey, size: 20)),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextFormField(controller: _emergencyName, decoration: _decoration(prefix: const Icon(Icons.contact_emergency_outlined, color: AppColors.textGrey)).copyWith(hintText: 'Contact name')),
+                const SizedBox(height: 12),
+                TextFormField(controller: _emergencyPhone, keyboardType: TextInputType.phone, decoration: _decoration(prefix: const Icon(Icons.phone_in_talk_outlined, color: AppColors.textGrey)).copyWith(hintText: 'Contact phone')),
                 const SizedBox(height: 28),
                 GradientPrimaryButton(
-                  label: _saving ? 'Saving...' : 'Save changes',
+                  label: _saving ? 'Saving...' : 'Save Changes',
                   onPressed: _saving ? null : _save,
                 ),
               ],
