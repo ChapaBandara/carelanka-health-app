@@ -1,6 +1,7 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/design/carelanka_gradients.dart';
+import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/services/health_record_service.dart';
 import 'package:carelanka_app/widgets/carelanka/carelanka_bottom_nav.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
@@ -165,60 +166,129 @@ class _DocumentsLibraryScreenState extends State<DocumentsLibraryScreen> {
   Widget _docCard(BuildContext context, Map<String, String> record) {
     final type = record['documentType'] ?? record['tag'] ?? '';
     final style = _styleFor(type);
+    final recordId = record['recordId'] ?? '';
+    final title = record['title'] ?? record['doctor'] ?? 'Document';
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        elevation: 0.5,
-        shadowColor: Colors.black12,
-        child: InkWell(
+      child: Dismissible(
+        key: ValueKey(recordId),
+        direction: DismissDirection.endToStart,
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 24),
+          decoration: BoxDecoration(
+            color: AppColors.errorRed,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
+        ),
+        confirmDismiss: (_) => _confirmDelete(context, title),
+        onDismissed: (_) => _deleteRecord(recordId),
+        child: Material(
+          color: Colors.white,
           borderRadius: BorderRadius.circular(14),
-          onTap: () => Navigator.pushNamed(context, AppRoutes.documentViewer, arguments: record),
+          elevation: 0.5,
+          shadowColor: Colors.black12,
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Row(
               children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(color: style.bg, borderRadius: BorderRadius.circular(12)),
-                  child: Icon(style.icon, color: style.color),
-                ),
-                const SizedBox(width: 12),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        record['title'] ?? record['doctor'] ?? 'Document',
-                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${record['doctor']} • ${record['monthDay'] ?? record['date']}',
-                        style: const TextStyle(color: AppColors.textGrey, fontSize: 13),
-                      ),
-                      const SizedBox(height: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(color: style.bg, borderRadius: BorderRadius.circular(12)),
-                        child: Text(
-                          type.toUpperCase(),
-                          style: TextStyle(color: style.color, fontSize: 10, fontWeight: FontWeight.w800),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () => Navigator.pushNamed(context, AppRoutes.documentViewer, arguments: record),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(color: style.bg, borderRadius: BorderRadius.circular(12)),
+                          child: Icon(style.icon, color: style.color),
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${record['doctor']} • ${record['monthDay'] ?? record['date']}',
+                                style: const TextStyle(color: AppColors.textGrey, fontSize: 13),
+                              ),
+                              const SizedBox(height: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(color: style.bg, borderRadius: BorderRadius.circular(12)),
+                                child: Text(
+                                  type.toUpperCase(),
+                                  style: TextStyle(color: style.color, fontSize: 10, fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                const Icon(Icons.more_vert, color: AppColors.textGrey, size: 20),
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert, color: AppColors.textGrey, size: 20),
+                  padding: EdgeInsets.zero,
+                  onSelected: (value) {
+                    if (value == 'edit') {
+                      Navigator.pushNamed(context, AppRoutes.addRecord, arguments: record);
+                    }
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: 'edit',
+                      child: Row(
+                        children: [
+                          Icon(Icons.edit_outlined, size: 18, color: AppColors.navy),
+                          SizedBox(width: 10),
+                          Text('Edit', style: TextStyle(fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  Future<bool> _confirmDelete(BuildContext context, String title) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete record?'),
+        content: Text('Delete "$title"? This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.errorRed),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  Future<void> _deleteRecord(String recordId) async {
+    if (recordId.isEmpty) return;
+    try {
+      await HealthRecordService().deleteRecord(recordId);
+    } catch (e) {
+      if (!mounted) return;
+      showFirebaseErrorSnackBar(context, firebaseErrorMessage(e));
+    }
   }
 
   ({IconData icon, Color bg, Color color}) _styleFor(String type) {

@@ -30,6 +30,40 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
   bool _remind1Day = true;
   bool _remind2Hours = true;
   bool _saving = false;
+  bool _isEdit = false;
+  String? _editAppointmentId;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadEditArgs());
+  }
+
+  void _loadEditArgs() {
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is! Map<String, String>) return;
+
+    final millis = int.tryParse(args['dateTimeMillis'] ?? args['sortKey'] ?? '');
+    if (millis == null) return;
+
+    final dt = DateTime.fromMillisecondsSinceEpoch(millis);
+    final reminders = (args['reminders'] ?? '').split('|').where((s) => s.isNotEmpty).toSet();
+
+    setState(() {
+      _isEdit = true;
+      _editAppointmentId = args['appointmentId'];
+      _doctor.text = args['doctor'] ?? '';
+      _place.text = args['hospital'] ?? '';
+      _reason.text = args['note'] ?? '';
+      _date = DateTime(dt.year, dt.month, dt.day);
+      _time = TimeOfDay(hour: dt.hour, minute: dt.minute);
+      _dateDisplay.text = DateFormat('MMM d, yyyy').format(_date!);
+      _timeDisplay.text = _time!.format(context);
+      _remind3Days = reminders.contains('3 days');
+      _remind1Day = reminders.contains('1 day');
+      _remind2Hours = reminders.contains('2 hours');
+    });
+  }
 
   @override
   void dispose() {
@@ -76,24 +110,35 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
     final dt = DateTime(_date!.year, _date!.month, _date!.day, _time!.hour, _time!.minute);
     try {
       final userId = FirebaseAuth.instance.currentUser!.uid;
-      await AppointmentService().addAppointment(
-        userId: userId,
-        doctorName: _doctor.text.trim(),
-        hospital: _place.text.trim(),
-        dateTime: dt,
-        notes: _reason.text.trim(),
-        reminderSettings: _selectedReminders,
-      );
 
-      var reminderNote = 'Reminders will notify you before the visit.';
-      try {
-        await NotificationService.instance.scheduleAppointmentReminders(
-          appointmentId: '${userId}_${dt.millisecondsSinceEpoch}',
-          title: 'Appointment with ${_doctor.text.trim()}',
-          appointmentTime: dt,
+      if (_isEdit && _editAppointmentId != null) {
+        await AppointmentService().updateAppointment(
+          appointmentId: _editAppointmentId!,
+          doctorName: _doctor.text.trim(),
+          hospital: _place.text.trim(),
+          dateTime: dt,
+          notes: _reason.text.trim(),
+          reminderSettings: _selectedReminders,
         );
-      } catch (_) {
-        reminderNote = 'Appointment saved. Enable notification permissions for reminders.';
+      } else {
+        await AppointmentService().addAppointment(
+          userId: userId,
+          doctorName: _doctor.text.trim(),
+          hospital: _place.text.trim(),
+          dateTime: dt,
+          notes: _reason.text.trim(),
+          reminderSettings: _selectedReminders,
+        );
+      }
+
+      if (!dt.isBefore(DateTime.now())) {
+        try {
+          await NotificationService.instance.scheduleAppointmentReminders(
+            appointmentId: _editAppointmentId ?? '${userId}_${dt.millisecondsSinceEpoch}',
+            title: 'Appointment with ${_doctor.text.trim()}',
+            appointmentTime: dt,
+          );
+        } catch (_) {}
       }
 
       await CheckupService().evaluateForUser(userId);
@@ -101,8 +146,10 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
       if (!mounted) return;
       await showCareLankaSuccessNotification(
         context,
-        title: 'Appointment saved',
-        subtitle: 'Your appointment has been added. $reminderNote',
+        title: _isEdit ? 'Appointment updated' : 'Appointment saved',
+        subtitle: _isEdit
+            ? 'Your appointment has been updated.'
+            : 'Your appointment has been added. Reminders will notify you before the visit.',
       );
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -124,7 +171,10 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
           icon: const Icon(Icons.arrow_back_ios_new, size: 20),
           onPressed: () => Navigator.maybePop(context),
         ),
-        title: const Text('New Appointment', style: TextStyle(fontWeight: FontWeight.w700)),
+        title: Text(
+          _isEdit ? 'Edit Appointment' : 'New Appointment',
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
         centerTitle: false,
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
@@ -161,9 +211,9 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
                   onTap: () async {
                     final d = await showDatePicker(
                       context: context,
-                      firstDate: DateTime.now(),
+                      firstDate: DateTime(2000),
                       lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
-                      initialDate: DateTime.now().add(const Duration(days: 1)),
+                      initialDate: _date ?? DateTime.now().add(const Duration(days: 1)),
                     );
                     if (d != null) {
                       setState(() {
@@ -181,7 +231,7 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
                   controller: _timeDisplay,
                   decoration: _decoration('Select time', suffix: const Icon(Icons.access_time, color: AppColors.textGrey, size: 20)),
                   onTap: () async {
-                    final t = await showTimePicker(context: context, initialTime: TimeOfDay.now());
+                    final t = await showTimePicker(context: context, initialTime: _time ?? TimeOfDay.now());
                     if (t != null) {
                       setState(() {
                         _time = t;
@@ -238,7 +288,7 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
                 ),
                 const SizedBox(height: 28),
                 GradientPrimaryButton(
-                  label: _saving ? 'Saving...' : 'Save Appointment',
+                  label: _saving ? 'Saving...' : (_isEdit ? 'Update Appointment' : 'Save Appointment'),
                   onPressed: _saving ? null : _save,
                 ),
               ],

@@ -19,9 +19,15 @@ class HealthRecordService {
       _firestore.collection(FirebaseCollections.healthRecords);
 
   Stream<List<Map<String, String>>> watchRecordMaps(String userId) {
-    return _col.where('userId', isEqualTo: userId).snapshots().map(
-          (snap) => snap.docs.map(_toUiMap).toList(),
-        );
+    return _col.where('userId', isEqualTo: userId).snapshots().map((snap) {
+      final list = snap.docs.map(_toUiMap).toList();
+      list.sort((a, b) {
+        final aMs = int.tryParse(a['visitDateMillis'] ?? '0') ?? 0;
+        final bMs = int.tryParse(b['visitDateMillis'] ?? '0') ?? 0;
+        return bMs.compareTo(aMs);
+      });
+      return list;
+    });
   }
 
   Map<String, String> _toUiMap(QueryDocumentSnapshot<Map<String, dynamic>> doc) {

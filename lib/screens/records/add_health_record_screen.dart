@@ -271,6 +271,7 @@ class _AddHealthRecordScreenState extends State<AddHealthRecordScreen> {
                 const Text('Document Type', style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
+                  key: ValueKey(_type),
                   initialValue: _type,
                   decoration: _fieldDecoration(),
                   items: const [

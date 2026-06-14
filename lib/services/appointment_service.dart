@@ -60,6 +60,7 @@ class AppointmentService {
       'note': d['notes'] as String? ?? '',
       'reminders': (d['reminderSettings'] as List?)?.join('|') ?? '',
       'period': dt.isBefore(DateTime.now()) ? 'past' : 'upcoming',
+      'dateTimeMillis': dt.millisecondsSinceEpoch.toString(),
     };
   }
 
@@ -82,5 +83,27 @@ class AppointmentService {
       'reminderSettings': reminderSettings,
       'createdAt': Timestamp.fromDate(DateTime.now()),
     });
+  }
+
+  Future<void> updateAppointment({
+    required String appointmentId,
+    required String doctorName,
+    required String hospital,
+    required DateTime dateTime,
+    required String notes,
+    List<String> reminderSettings = const [],
+  }) async {
+    await _col.doc(appointmentId).update({
+      'doctorName': doctorName,
+      'hospital': hospital,
+      'dateTime': Timestamp.fromDate(dateTime),
+      'notes': notes,
+      'reminderSettings': reminderSettings,
+      'updatedAt': Timestamp.fromDate(DateTime.now()),
+    });
+  }
+
+  Future<void> deleteAppointment(String appointmentId) async {
+    await _col.doc(appointmentId).delete();
   }
 }
