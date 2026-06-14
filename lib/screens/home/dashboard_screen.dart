@@ -209,14 +209,37 @@ class DashboardScreen extends StatelessWidget {
           BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 12, offset: const Offset(0, 4)),
         ],
       ),
-      child: const Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Text("Today's Overview", style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
-          SizedBox(height: 8),
-          Text('No doses scheduled yet', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-          SizedBox(height: 6),
-          Text('Add medications to track adherence', style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("Today's Overview", style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
+                SizedBox(height: 6),
+                Text('No doses scheduled yet', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                SizedBox(height: 6),
+                Text('Add medications to track adherence', style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
+              ],
+            ),
+          ),
+          // Placeholder circle — same size as the PieChart in _overviewCard
+          SizedBox(
+            width: 100,
+            height: 100,
+            child: Center(
+              child: Container(
+                width: 64,
+                height: 64,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Color(0xFFE6E6E6),
+                ),
+                alignment: Alignment.center,
+                child: const Text('—', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textGrey)),
+              ),
+            ),
+          ),
         ],
       ),
     );

@@ -15,13 +15,27 @@ class ReminderHistoryScreen extends StatefulWidget {
   State<ReminderHistoryScreen> createState() => _ReminderHistoryScreenState();
 }
 
-class _ReminderHistoryScreenState extends State<ReminderHistoryScreen> with SingleTickerProviderStateMixin {
+class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
+    with SingleTickerProviderStateMixin {
   late final TabController _tab = TabController(length: 4, vsync: this);
+  bool _searchOpen = false;
+  final _searchCtrl = TextEditingController();
 
   @override
   void dispose() {
     _tab.dispose();
+    _searchCtrl.dispose();
     super.dispose();
+  }
+
+  List<Map<String, String>> _applySearch(List<Map<String, String>> reminders) {
+    final q = _searchCtrl.text.trim().toLowerCase();
+    if (q.isEmpty) return reminders;
+    return reminders.where((r) {
+      final med = (r['medication'] ?? '').toLowerCase();
+      final cond = (r['condition'] ?? '').toLowerCase();
+      return med.contains(q) || cond.contains(q);
+    }).toList();
   }
 
   @override
@@ -34,18 +48,43 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen> with Sing
         return StreamBuilder<List<DailyDoseItem>>(
           stream: ReminderService().watchTodayDoses(userId),
           builder: (context, todaySnap) {
-            final reminders = historySnap.data ?? [];
+            final reminders = _applySearch(historySnap.data ?? []);
             final todayDoses = todaySnap.data ?? [];
 
             return Scaffold(
               backgroundColor: AppColors.background,
               appBar: AppBar(
-                leading: IconButton(
-                  icon: const Icon(Icons.arrow_back_ios_new, size: 20),
-                  onPressed: () => Navigator.maybePop(context),
-                ),
-                title: const Text('Reminder History'),
-                centerTitle: true,
+                leading: _searchOpen
+                    ? IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => setState(() {
+                          _searchOpen = false;
+                          _searchCtrl.clear();
+                        }),
+                      )
+                    : IconButton(
+                        icon: const Icon(Icons.arrow_back_ios_new, size: 20),
+                        onPressed: () => Navigator.maybePop(context),
+                      ),
+                title: _searchOpen
+                    ? TextField(
+                        controller: _searchCtrl,
+                        autofocus: true,
+                        onChanged: (_) => setState(() {}),
+                        decoration: const InputDecoration(
+                          hintText: 'Search reminders...',
+                          border: InputBorder.none,
+                        ),
+                      )
+                    : const Text('Reminder History'),
+                centerTitle: !_searchOpen,
+                actions: [
+                  if (!_searchOpen)
+                    IconButton(
+                      icon: const Icon(Icons.search),
+                      onPressed: () => setState(() => _searchOpen = true),
+                    ),
+                ],
                 bottom: TabBar(
                   controller: _tab,
                   labelColor: AppColors.navy,

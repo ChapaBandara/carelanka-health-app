@@ -25,32 +25,67 @@ class _MedicationListScreenState extends State<MedicationListScreen>
   late final Stream<List<Map<String, String>>> _illnessStream;
   late final String _userId;
 
+  bool _searchOpen = false;
+  final _searchCtrl = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     _userId = FirebaseAuth.instance.currentUser!.uid;
     _illnessStream = IllnessService().watchIllnessMaps(_userId);
+    _tab.addListener(() => setState(() {})); // rebuild when tab changes so FAB updates
   }
 
   @override
   void dispose() {
     _tab.dispose();
+    _searchCtrl.dispose();
     super.dispose();
+  }
+
+  List<Map<String, String>> _applySearch(List<Map<String, String>> illnesses) {
+    final q = _searchCtrl.text.trim().toLowerCase();
+    if (q.isEmpty) return illnesses;
+    return illnesses.where((i) => (i['name'] ?? '').toLowerCase().contains(q)).toList();
   }
 
   @override
   Widget build(BuildContext context) {
+    final isActiveTab = _tab.index == 0;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, size: 20),
-          onPressed: () => Navigator.maybePop(context),
-        ),
-        title: const Text('My Medications'),
-        centerTitle: true,
+        leading: _searchOpen
+            ? IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => setState(() {
+                  _searchOpen = false;
+                  _searchCtrl.clear();
+                }),
+              )
+            : IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new, size: 20),
+                onPressed: () => Navigator.maybePop(context),
+              ),
+        title: _searchOpen
+            ? TextField(
+                controller: _searchCtrl,
+                autofocus: true,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  hintText: 'Search illnesses...',
+                  border: InputBorder.none,
+                ),
+              )
+            : const Text('My Medications'),
+        centerTitle: !_searchOpen,
         actions: [
-          IconButton(onPressed: () {}, icon: const Icon(Icons.search)),
+          if (!_searchOpen)
+            IconButton(
+              icon: const Icon(Icons.search),
+              onPressed: () => setState(() => _searchOpen = true),
+            ),
         ],
         bottom: TabBar(
           controller: _tab,
@@ -64,27 +99,29 @@ class _MedicationListScreenState extends State<MedicationListScreen>
           ],
         ),
       ),
-      floatingActionButton: Container(
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: CareLankaGradients.fab,
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.navy.withValues(alpha: 0.35),
-              blurRadius: 12,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: FloatingActionButton(
-          elevation: 0,
-          backgroundColor: Colors.transparent,
-          onPressed: () => Navigator.pushNamed(context, AppRoutes.addIllness),
-          child: const Icon(Icons.add, color: Colors.white, size: 32),
-        ),
-      ),
-      // Wrap the entire TabBarView in a single StreamBuilder so the stream is
-      // subscribed to exactly once regardless of how many tabs exist.
+      // Only show FAB on the Active tab
+      floatingActionButton: isActiveTab
+          ? Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: CareLankaGradients.fab,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.navy.withValues(alpha: 0.35),
+                    blurRadius: 12,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: FloatingActionButton(
+                elevation: 0,
+                backgroundColor: Colors.transparent,
+                onPressed: () => Navigator.pushNamed(context, AppRoutes.addIllness),
+                child: const Icon(Icons.add, color: Colors.white, size: 32),
+              ),
+            )
+          : null,
+      // Single StreamBuilder for both tabs — subscribed exactly once
       body: StreamBuilder<List<Map<String, String>>>(
         stream: _illnessStream,
         builder: (context, snapshot) {
@@ -92,7 +129,7 @@ class _MedicationListScreenState extends State<MedicationListScreen>
             return const Center(child: CircularProgressIndicator());
           }
 
-          final illnesses = snapshot.data ?? [];
+          final illnesses = _applySearch(snapshot.data ?? []);
 
           return TabBarView(
             controller: _tab,

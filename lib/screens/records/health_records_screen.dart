@@ -240,7 +240,9 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
   }
 
   Widget _recordTile(BuildContext context, Map<String, String> record, String userId) {
-    final style = _docStyle(record['documentType'] ?? record['tag'] ?? '');
+    // Use documentType first for icon logic, fall back to tag
+    final docType = record['documentType'] ?? record['tag'] ?? '';
+    final style = _docStyle(docType);
     final recordId = record['recordId'] ?? '';
     final title = record['title'] ?? '${record['doctor']} — ${record['shortDate']}';
 
@@ -301,7 +303,7 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Text(
-                                  (record['tag'] ?? 'RECORD').toUpperCase(),
+                                  (record['documentType'] ?? record['tag'] ?? 'RECORD').toUpperCase(),
                                   style: TextStyle(color: style.color, fontSize: 10, fontWeight: FontWeight.w800),
                                 ),
                               ),
@@ -372,15 +374,16 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
 
   _DocStyle _docStyle(String type) {
     final t = type.toLowerCase();
-    if (t.contains('lab')) {
+    if (t.contains('lab') || t.contains('test') || t.contains('blood')) {
       return const _DocStyle(Icons.science_outlined, Color(0xFFE3F2FD), Color(0xFF1565C0));
     }
-    if (t.contains('scan') || t.contains('x-ray')) {
+    if (t.contains('scan') || t.contains('mri') || t.contains('ct') || t.contains('x-ray') || t.contains('xray')) {
       return const _DocStyle(Icons.crop_free, Color(0xFFF3E5F5), Color(0xFF7B1FA2));
     }
-    if (t.contains('prescription')) {
+    if (t.contains('prescription') || t.contains('rx')) {
       return const _DocStyle(Icons.medication_outlined, Color(0xFFE0F7F7), AppColors.primaryTeal);
     }
+    // Everything else (Visit summary, Report, etc.) → document icon
     return const _DocStyle(Icons.description_outlined, Color(0xFFE8F5E9), Color(0xFF388E3C));
   }
 }

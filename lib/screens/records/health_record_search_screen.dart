@@ -142,6 +142,7 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
   Widget _resultCard(BuildContext context, Map<String, String> record, String query) {
     final title = record['title'] ?? record['diagnosis'] ?? record['doctor'] ?? 'Record';
     final type = record['documentType'] ?? record['tag'] ?? 'Record';
+    final style = _docStyle(type);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -159,13 +160,10 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
                   width: 48,
                   height: 48,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE0F7F7),
+                    color: style.bg,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(
-                    type.toLowerCase().contains('lab') ? Icons.biotech_outlined : Icons.description_outlined,
-                    color: AppColors.primaryTeal,
-                  ),
+                  child: Icon(style.icon, color: style.color),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -195,6 +193,21 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
     );
   }
 
+  /// Identical to the _docStyle in health_records_screen.dart — kept in sync.
+  _DocStyle _docStyle(String type) {
+    final t = type.toLowerCase();
+    if (t.contains('lab') || t.contains('test') || t.contains('blood')) {
+      return const _DocStyle(Icons.science_outlined, Color(0xFFE3F2FD), Color(0xFF1565C0));
+    }
+    if (t.contains('scan') || t.contains('mri') || t.contains('ct') || t.contains('x-ray') || t.contains('xray')) {
+      return const _DocStyle(Icons.crop_free, Color(0xFFF3E5F5), Color(0xFF7B1FA2));
+    }
+    if (t.contains('prescription') || t.contains('rx')) {
+      return const _DocStyle(Icons.medication_outlined, Color(0xFFE0F7F7), AppColors.primaryTeal);
+    }
+    return const _DocStyle(Icons.description_outlined, Color(0xFFE8F5E9), Color(0xFF388E3C));
+  }
+
   Widget _highlightedText(String text, String query) {
     if (query.isEmpty) {
       return Text(text, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15));
@@ -219,4 +232,11 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
       ),
     );
   }
+}
+
+class _DocStyle {
+  const _DocStyle(this.icon, this.bg, this.color);
+  final IconData icon;
+  final Color bg;
+  final Color color;
 }
