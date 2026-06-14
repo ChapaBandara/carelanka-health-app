@@ -1,5 +1,4 @@
 import 'package:carelanka_app/services/reminder_service.dart';
-import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
@@ -11,6 +10,10 @@ class ReportService {
 
   Future<double> adherencePercent(String userId, {DateTime? start, DateTime? end}) {
     return _reminderService.calculateAdherencePercent(userId, start: start, end: end);
+  }
+
+  Future<DoseStats> fetchDoseStats(String userId, {DateTime? start, DateTime? end}) {
+    return _reminderService.fetchDoseStats(userId, start: start, end: end);
   }
 
   Future<void> generateAndSharePdf({

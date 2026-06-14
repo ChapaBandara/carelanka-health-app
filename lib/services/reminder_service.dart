@@ -79,7 +79,7 @@ class ReminderService {
       'actionTime': actionTime,
       'status': status == 'taken' ? 'confirmed' : status,
       'timing': timing,
-      if (lateBy != null) 'lateBy': lateBy,
+      'lateBy': lateBy ?? '',
       'dateGroup': dateGroup,
     };
   }
@@ -274,4 +274,113 @@ class ReminderService {
     if (total == 0) return 0;
     return (taken / total) * 100;
   }
+
+  /// Returns full dose stats for a period: taken/missed/pending counts and
+  /// a per-medication breakdown list, all derived from real reminder logs.
+  Future<DoseStats> fetchDoseStats(String userId, {DateTime? start, DateTime? end}) async {
+    final snap = await _col.where('userId', isEqualTo: userId).get();
+
+    var taken = 0;
+    var missed = 0;
+    var pending = 0;
+
+    // med name → {taken, missed, pending}
+    final medMap = <String, Map<String, int>>{};
+
+    for (final doc in snap.docs) {
+      final d = doc.data();
+
+      // Filter by date range using scheduledTime
+      final scheduled = d['scheduledTime'];
+      if (scheduled is Timestamp) {
+        final dt = scheduled.toDate();
+        if (start != null && dt.isBefore(start)) continue;
+        if (end != null && dt.isAfter(end)) continue;
+      } else {
+        // Fallback: filter by createdAt
+        final created = d['createdAt'];
+        if (created is Timestamp) {
+          final dt = created.toDate();
+          if (start != null && dt.isBefore(start)) continue;
+          if (end != null && dt.isAfter(end)) continue;
+        }
+      }
+
+      final status = (d['status'] as String? ?? '').toLowerCase();
+      final medName = d['medicationName'] as String? ?? d['name'] as String? ?? 'Medication';
+
+      medMap.putIfAbsent(medName, () => {'taken': 0, 'missed': 0, 'pending': 0});
+
+      if (status == 'confirmed' || status == 'taken') {
+        taken++;
+        medMap[medName]!['taken'] = medMap[medName]!['taken']! + 1;
+      } else if (status == 'missed' || status == 'skipped') {
+        missed++;
+        medMap[medName]!['missed'] = medMap[medName]!['missed']! + 1;
+      } else {
+        pending++;
+        medMap[medName]!['pending'] = medMap[medName]!['pending']! + 1;
+      }
+    }
+
+    final total = taken + missed + pending;
+
+    final medStats = medMap.entries.map((e) {
+      final t = e.value['taken']! + e.value['missed']! + e.value['pending']!;
+      final pct = t == 0 ? 0 : ((e.value['taken']! / t) * 100).round();
+      return MedStat(
+        name: e.key,
+        taken: e.value['taken']!,
+        missed: e.value['missed']!,
+        pending: e.value['pending']!,
+        total: t,
+        adherencePct: pct,
+      );
+    }).toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+
+    return DoseStats(
+      taken: taken,
+      missed: missed,
+      pending: pending,
+      total: total,
+      medStats: medStats,
+    );
+  }
+}
+
+/// Aggregated dose statistics for a reporting period.
+class DoseStats {
+  const DoseStats({
+    required this.taken,
+    required this.missed,
+    required this.pending,
+    required this.total,
+    required this.medStats,
+  });
+  final int taken;
+  final int missed;
+  final int pending;
+  final int total;
+  final List<MedStat> medStats;
+
+  bool get isEmpty => total == 0;
+}
+
+/// Per-medication adherence stats.
+class MedStat {
+  const MedStat({
+    required this.name,
+    required this.taken,
+    required this.missed,
+    required this.pending,
+    required this.total,
+    required this.adherencePct,
+  });
+  final String name;
+  final int taken;
+  final int missed;
+  final int pending;
+  final int total;
+  final int adherencePct;
 }

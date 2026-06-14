@@ -28,6 +28,22 @@ class _AddHealthRecordScreenState extends State<AddHealthRecordScreen> {
   DateTime? _date;
   String _type = 'Lab Report';
   bool _saving = false;
+
+  static const _validTypes = ['Prescription', 'Lab Report', 'Scan Report', 'X-Ray'];
+
+  /// Normalise any stored document type to one of the four valid dropdown items.
+  String _normaliseType(String? raw) {
+    if (raw == null || raw.isEmpty) return 'Lab Report';
+    final lower = raw.toLowerCase();
+    if (lower.contains('prescription')) return 'Prescription';
+    if (lower.contains('lab') || lower.contains('report') || lower.contains('test')) return 'Lab Report';
+    if (lower.contains('scan') || lower.contains('mri') || lower.contains('ct')) return 'Scan Report';
+    if (lower.contains('x-ray') || lower.contains('xray') || lower.contains('x ray')) return 'X-Ray';
+    // If it already exactly matches a valid type, keep it
+    if (_validTypes.contains(raw)) return raw;
+    // Default fallback
+    return 'Lab Report';
+  }
   File? _pickedFile;
   String? _existingDocumentUrl;
   String? _editRecordId;
@@ -66,7 +82,7 @@ class _AddHealthRecordScreenState extends State<AddHealthRecordScreen> {
       _doctorHospital.text = doctorHospital;
       _diagnosis.text = args['diagnosis'] ?? '';
       _notes.text = args['notes'] ?? '';
-      _type = args['documentType'] ?? args['tag'] ?? 'Lab Report';
+      _type = _normaliseType(args['documentType'] ?? args['tag']);
       _existingDocumentUrl = args['documentUrl'];
     });
   }

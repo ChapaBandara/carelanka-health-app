@@ -78,56 +78,54 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final userId = FirebaseAuth.instance.currentUser!.uid;
     final range = _periodRange();
 
-    return StreamBuilder<List<Map<String, String>>>(
-      stream: ReminderService().watchReminderMaps(userId),
-      builder: (context, logSnapshot) {
-        final hasData = (logSnapshot.data ?? []).isNotEmpty;
+    return FutureBuilder<DoseStats>(
+      future: _reportService.fetchDoseStats(userId, start: range.$1, end: range.$2),
+      builder: (context, statsSnapshot) {
+        final stats = statsSnapshot.data;
+        final hasData = stats != null && !stats.isEmpty;
+        final adherenceInt = stats == null || stats.total == 0
+            ? 0
+            : ((stats.taken / stats.total) * 100).round().clamp(0, 100);
 
-        return FutureBuilder<double>(
-          future: _reportService.adherencePercent(userId, start: range.$1, end: range.$2),
-          builder: (context, adherenceSnapshot) {
-            final adherence = adherenceSnapshot.data ?? 0;
-            final adherenceInt = adherence.round().clamp(0, 100);
-
-            return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, size: 20),
-          onPressed: () => Navigator.maybePop(context),
-        ),
-        title: const Text('Health Reports'),
-        centerTitle: true,
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: _pillTabs(),
+        return Scaffold(
+          backgroundColor: AppColors.background,
+          appBar: AppBar(
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back_ios_new, size: 20),
+              onPressed: () => Navigator.maybePop(context),
+            ),
+            title: const Text('Health Reports'),
+            centerTitle: true,
           ),
-          _periodNavigator(),
-          Expanded(
-            child: hasData
-                ? ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                    children: _tab == 0
-                        ? _dailyBody(adherenceInt)
-                        : _tab == 1
-                            ? _weeklyBody(adherenceInt)
-                            : _tab == 2
-                                ? _monthlyBody(adherenceInt)
-                                : _yearlyBody(adherenceInt),
-                  )
-                : const EmptyListPlaceholder(
-                    icon: Icons.bar_chart_outlined,
-                    title: 'No report data yet',
-                    subtitle: 'Add medications and track doses to generate health reports.',
-                  ),
+          body: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: _pillTabs(),
+              ),
+              _periodNavigator(),
+              Expanded(
+                child: statsSnapshot.connectionState == ConnectionState.waiting
+                    ? const Center(child: CircularProgressIndicator())
+                    : hasData
+                        ? ListView(
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                            children: _tab == 0
+                                ? _dailyBody(adherenceInt, stats)
+                                : _tab == 1
+                                    ? _weeklyBody(adherenceInt, stats)
+                                    : _tab == 2
+                                        ? _monthlyBody(adherenceInt, stats)
+                                        : _yearlyBody(adherenceInt, stats),
+                          )
+                        : const EmptyListPlaceholder(
+                            icon: Icons.bar_chart_outlined,
+                            title: 'No report data yet',
+                            subtitle: 'Add medications and track doses to generate health reports.',
+                          ),
+              ),
+            ],
           ),
-        ],
-      ),
-    );
-          },
         );
       },
     );
@@ -238,198 +236,129 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  List<Widget> _dailyBody(int adherencePercent) => [
+  // ─────────────────── Daily ───────────────────
+  List<Widget> _dailyBody(int adherencePercent, DoseStats stats) => [
         _adherenceCard(
           title: "Today's Adherence",
           percent: adherencePercent,
-          trend: 'Improving',
-          trendUp: true,
-          taken: 3,
-          missed: 1,
-          pending: 2,
-          total: 6,
+          taken: stats.taken,
+          missed: stats.missed,
+          pending: stats.pending,
+          total: stats.total,
         ),
         const SizedBox(height: 20),
-        const Text('Medication Status', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-        const SizedBox(height: 10),
-        _medStatusCard('Aspirin', 'Hypertension • 2 doses', '100%', const [true, true], null),
-        const SizedBox(height: 10),
-        _medStatusCard('Metformin', 'Diabetes • 3 doses', '33%', const [true, false, null], AppColors.errorRed),
-        const SizedBox(height: 10),
-        _medStatusCard('Losartan', 'Hypertension • 2 doses', '50%', [true, null], AppColors.warningAmber),
-        const SizedBox(height: 12),
-        _doseLegend(),
-        const SizedBox(height: 20),
+        if (stats.medStats.isNotEmpty) ...[
+          const Text('Medication Status', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+          const SizedBox(height: 10),
+          for (final m in stats.medStats) _medStatusCard(m),
+          const SizedBox(height: 12),
+          _doseLegend(),
+          const SizedBox(height: 20),
+        ],
         _summaryCard(
           title: 'Daily Health Summary',
           adherencePercent: adherencePercent.toDouble(),
-          rows: const [
-            _SummaryRow('Active medications', '3'),
-            _SummaryRow('Total doses scheduled', '6'),
-            _SummaryRow('Doses taken', '3', icon: Icons.check_circle, iconColor: AppColors.primaryTeal),
-            _SummaryRow('Doses missed', '1', icon: Icons.cancel, iconColor: AppColors.errorRed),
-            _SummaryRow('Doses pending', '2', icon: Icons.circle_outlined, iconColor: AppColors.navy),
-            _SummaryRow('Adherence trend', 'Improving', trend: true),
-          ],
+          stats: stats,
+          extraRows: [],
         ),
         const SizedBox(height: 16),
         _insightCard(
-          'Today\'s Insight',
-          'Good progress! You missed your morning Metformin dose. Try taking it immediately after breakfast. CareLanka will continue adjusting reminder timing based on your response patterns.',
+          "Today's Insight",
+          stats.missed > 0
+              ? 'You missed ${stats.missed} dose${stats.missed == 1 ? '' : 's'} today. Try setting a reminder or keeping your medication visible as a cue.'
+              : stats.taken > 0
+                  ? 'Great job! You took all your doses today. Keep up the consistency.'
+                  : 'No doses recorded yet for today. Make sure to take your medications on time.',
         ),
       ];
 
-  List<Widget> _weeklyBody(int adherencePercent) => [
+  // ─────────────────── Weekly ───────────────────
+  List<Widget> _weeklyBody(int adherencePercent, DoseStats stats) => [
         _adherenceCard(
           title: "This Week's Adherence",
           percent: adherencePercent,
-          trend: '+5% vs last week',
-          trendUp: true,
-          taken: 18,
-          missed: 3,
-          pending: 0,
-          total: 21,
-        ),
-        const SizedBox(height: 20),
-        const Text('Daily Performance', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-        const SizedBox(height: 10),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              _dayPerf('Mon', 100, AppColors.successGreen),
-              _dayPerf('Tue', 80, AppColors.warningAmber),
-              _dayPerf('Wed', 100, AppColors.successGreen),
-              _dayPerf('Thu', 67, AppColors.errorRed),
-              _dayPerf('Fri', 100, AppColors.successGreen),
-              _dayPerf('Sat', 90, AppColors.primaryTeal),
-            ],
-          ),
+          taken: stats.taken,
+          missed: stats.missed,
+          pending: stats.pending,
+          total: stats.total,
         ),
         const SizedBox(height: 20),
         _summaryCard(
           title: 'Weekly Health Summary',
           adherencePercent: adherencePercent.toDouble(),
-          rows: const [
-            _SummaryRow('Active medications', '3'),
-            _SummaryRow('Total doses scheduled', '21'),
-            _SummaryRow('Doses taken', '18', icon: Icons.check_circle, iconColor: AppColors.primaryTeal),
-            _SummaryRow('Doses missed', '3', icon: Icons.cancel, iconColor: AppColors.errorRed),
-            _SummaryRow('Weekly trend', 'Improved by 5%', trend: true),
-          ],
+          stats: stats,
+          extraRows: [],
         ),
         const SizedBox(height: 16),
         _insightCard(
           'Weekly Insight',
-          'Your adherence improved compared with last week. Most missed doses occurred in the evening. Consider taking your medication immediately after dinner.',
+          stats.missed > 0
+              ? 'You missed ${stats.missed} dose${stats.missed == 1 ? '' : 's'} this week. Review your schedule and adjust reminder times if needed.'
+              : stats.taken > 0
+                  ? 'Excellent week! All recorded doses were taken. Your consistency is improving.'
+                  : 'No doses recorded this week. Start tracking your medications to see weekly insights.',
         ),
       ];
 
-  List<Widget> _monthlyBody(int adherencePercent) => [
+  // ─────────────────── Monthly ───────────────────
+  List<Widget> _monthlyBody(int adherencePercent, DoseStats stats) => [
         _adherenceCard(
           title: "This Month's Adherence",
           percent: adherencePercent,
-          trend: '+3% vs last month',
-          trendUp: true,
-          taken: 106,
-          missed: 14,
-          pending: 0,
-          total: 120,
-        ),
-        const SizedBox(height: 20),
-        const Text('Weekly Breakdown', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(child: _weekBox('Week 1', 92, AppColors.primaryTeal)),
-            const SizedBox(width: 8),
-            Expanded(child: _weekBox('Week 2', 86, AppColors.warningAmber)),
-            const SizedBox(width: 8),
-            Expanded(child: _weekBox('Week 3', 90, AppColors.primaryTeal)),
-            const SizedBox(width: 8),
-            Expanded(child: _weekBox('Week 4', 84, AppColors.warningAmber)),
-          ],
+          taken: stats.taken,
+          missed: stats.missed,
+          pending: stats.pending,
+          total: stats.total,
         ),
         const SizedBox(height: 20),
         _summaryCard(
           title: 'Monthly Health Summary',
           adherencePercent: adherencePercent.toDouble(),
-          rows: const [
-            _SummaryRow('Active medications', '3'),
-            _SummaryRow('Total doses scheduled', '120'),
-            _SummaryRow('Doses taken', '106', icon: Icons.check_circle, iconColor: AppColors.primaryTeal),
-            _SummaryRow('Doses missed', '14', icon: Icons.cancel, iconColor: AppColors.errorRed),
-            _SummaryRow('Monthly trend', 'Improved by 3%', trend: true),
-          ],
+          stats: stats,
+          extraRows: [],
         ),
         const SizedBox(height: 16),
         _insightCard(
           'Monthly Insight',
-          'Your adherence remained strong throughout the month. Evening medications were missed most frequently, suggesting reminder timing may need adjustment.',
+          stats.missed > 0
+              ? '${stats.missed} dose${stats.missed == 1 ? '' : 's'} were missed this month. Evening medications tend to be missed most — consider a reminder after dinner.'
+              : stats.taken > 0
+                  ? 'Your adherence remained strong throughout the month. Keep maintaining this habit!'
+                  : 'No doses recorded this month. Add medications and log doses to track monthly progress.',
         ),
       ];
 
-  List<Widget> _yearlyBody(int adherencePercent) => [
+  // ─────────────────── Yearly ───────────────────
+  List<Widget> _yearlyBody(int adherencePercent, DoseStats stats) => [
         _adherenceCard(
           title: "This Year's Adherence",
           percent: adherencePercent,
-          trend: '+8% vs start of year',
-          trendUp: true,
-          taken: 1287,
-          missed: 159,
-          pending: 0,
-          total: 1446,
-        ),
-        const SizedBox(height: 20),
-        const Text('Monthly Breakdown', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-        const SizedBox(height: 10),
-        GridView.count(
-          crossAxisCount: 3,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 8,
-          crossAxisSpacing: 8,
-          childAspectRatio: 1.35,
-          children: [
-            _monthBox('JAN', 91, AppColors.primaryTeal),
-            _monthBox('FEB', 88, AppColors.warningAmber),
-            _monthBox('MAR', 94, AppColors.primaryTeal),
-            _monthBox('APR', 85, AppColors.warningAmber),
-            _monthBox('MAY', 88, AppColors.warningAmber),
-            _monthBox('JUN', 90, AppColors.primaryTeal),
-            _monthBox('JUL', 87, AppColors.warningAmber),
-            _monthBox('AUG', 89, AppColors.warningAmber),
-            _monthBox('SEP', 91, AppColors.primaryTeal),
-            _monthBox('OCT', 88, AppColors.warningAmber),
-            _monthBox('NOV', 90, AppColors.primaryTeal),
-            _monthBox('DEC', 87, AppColors.warningAmber),
-          ],
+          taken: stats.taken,
+          missed: stats.missed,
+          pending: stats.pending,
+          total: stats.total,
         ),
         const SizedBox(height: 20),
         _summaryCard(
           title: 'Annual Health Summary',
           adherencePercent: adherencePercent.toDouble(),
-          rows: const [
-            _SummaryRow('Active medications', '3'),
-            _SummaryRow('Total doses scheduled', '1,446'),
-            _SummaryRow('Doses taken', '1,287', icon: Icons.check_circle, iconColor: AppColors.primaryTeal),
-            _SummaryRow('Doses missed', '159', icon: Icons.cancel, iconColor: AppColors.errorRed),
-            _SummaryRow('Longest adherence streak', '47 days'),
-            _SummaryRow('Annual trend', 'Improved by 8%', trend: true),
-          ],
+          stats: stats,
+          extraRows: [],
         ),
         const SizedBox(height: 16),
         _insightCard(
           'Annual Insight',
-          'Your medication adherence improved significantly over the year. Adaptive reminders helped reduce missed doses and improved consistency.',
+          stats.total > 0
+              ? 'You tracked ${stats.total} dose${stats.total == 1 ? '' : 's'} this year with an overall adherence of $adherencePercent%. Adaptive reminders can help reduce missed doses further.'
+              : 'No doses recorded this year yet. Start tracking your medications to see annual insights.',
         ),
       ];
+
+  // ─────────────────── Widgets ───────────────────
 
   Widget _adherenceCard({
     required String title,
     required int percent,
-    required String trend,
-    required bool trendUp,
     required int taken,
     required int missed,
     required int pending,
@@ -486,9 +415,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   children: [
                     Row(
                       children: [
-                        Icon(trendUp ? Icons.trending_up : Icons.trending_down, color: AppColors.successGreen, size: 20),
+                        Icon(
+                          percent >= 80 ? Icons.trending_up : Icons.trending_down,
+                          color: percent >= 80 ? AppColors.successGreen : AppColors.warningAmber,
+                          size: 20,
+                        ),
                         const SizedBox(width: 6),
-                        Text(trend, style: const TextStyle(color: AppColors.successGreen, fontWeight: FontWeight.w600, fontSize: 13)),
+                        Text(
+                          percent >= 80 ? 'On Track' : 'Needs Attention',
+                          style: TextStyle(
+                            color: percent >= 80 ? AppColors.successGreen : AppColors.warningAmber,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -519,36 +459,60 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  Widget _medStatusCard(String name, String sub, String pct, List<bool?> doses, Color? pctColor) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFEEEEEE)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(child: Text(name, style: const TextStyle(fontWeight: FontWeight.w700))),
-              Text(pct, style: TextStyle(fontWeight: FontWeight.w800, color: pctColor ?? AppColors.primaryTeal)),
-            ],
-          ),
-          Text(sub, style: const TextStyle(color: AppColors.textGrey, fontSize: 12)),
-          const SizedBox(height: 10),
-          Row(
-            children: doses.map((d) {
-              if (d == true) return const Padding(padding: EdgeInsets.only(right: 8), child: Icon(Icons.check_circle, color: AppColors.primaryTeal, size: 22));
-              if (d == false) return const Padding(padding: EdgeInsets.only(right: 8), child: Icon(Icons.cancel, color: AppColors.errorRed, size: 22));
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Icon(Icons.circle_outlined, color: AppColors.navy.withValues(alpha: 0.4), size: 22),
-              );
-            }).toList(),
-          ),
-        ],
+  /// Builds a medication status card from real [MedStat] data.
+  Widget _medStatusCard(MedStat m) {
+    final pct = m.adherencePct;
+    final Color pctColor = pct >= 80
+        ? AppColors.primaryTeal
+        : pct >= 50
+            ? AppColors.warningAmber
+            : AppColors.errorRed;
+
+    // Build a list of bool? representing taken/missed/pending doses
+    final doses = <bool?>[
+      ...List.filled(m.taken, true),
+      ...List.filled(m.missed, false),
+      ...List.filled(m.pending, null),
+    ];
+    // Cap display at 6 dots so the card doesn't overflow
+    final displayDoses = doses.take(6).toList();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFEEEEEE)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(child: Text(m.name, style: const TextStyle(fontWeight: FontWeight.w700))),
+                Text('$pct%', style: TextStyle(fontWeight: FontWeight.w800, color: pctColor)),
+              ],
+            ),
+            Text('${m.total} dose${m.total == 1 ? '' : 's'}', style: const TextStyle(color: AppColors.textGrey, fontSize: 12)),
+            const SizedBox(height: 10),
+            Row(
+              children: displayDoses.map((d) {
+                if (d == true) {
+                  return const Padding(padding: EdgeInsets.only(right: 8), child: Icon(Icons.check_circle, color: AppColors.primaryTeal, size: 22));
+                }
+                if (d == false) {
+                  return const Padding(padding: EdgeInsets.only(right: 8), child: Icon(Icons.cancel, color: AppColors.errorRed, size: 22));
+                }
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Icon(Icons.circle_outlined, color: AppColors.navy.withValues(alpha: 0.4), size: 22),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -574,9 +538,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Widget _summaryCard({
     required String title,
-    required List<_SummaryRow> rows,
     required double adherencePercent,
+    required DoseStats stats,
+    required List<_SummaryRow> extraRows,
   }) {
+    final activeMeds = stats.medStats.length;
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -589,37 +555,38 @@ class _ReportsScreenState extends State<ReportsScreen> {
         children: [
           Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
           const SizedBox(height: 12),
-          ...rows.map((r) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  children: [
-                    Expanded(child: Text(r.label, style: const TextStyle(fontSize: 14))),
-                    if (r.trend)
-                      Row(
-                        children: [
-                          const Icon(Icons.trending_up, color: AppColors.successGreen, size: 18),
-                          const SizedBox(width: 4),
-                          Text(r.value, style: const TextStyle(color: AppColors.successGreen, fontWeight: FontWeight.w600)),
-                        ],
-                      )
-                    else
-                      Row(
-                        children: [
-                          if (r.icon != null) ...[
-                            Icon(r.icon, size: 18, color: r.iconColor),
-                            const SizedBox(width: 4),
-                          ],
-                          Text(r.value, style: const TextStyle(fontWeight: FontWeight.w700)),
-                        ],
-                      ),
-                  ],
-                ),
-              )),
+          _summaryRow('Active medications', '$activeMeds'),
+          _summaryRow('Total doses', '${stats.total}'),
+          _summaryRow('Doses taken', '${stats.taken}',
+              icon: Icons.check_circle, iconColor: AppColors.primaryTeal),
+          _summaryRow('Doses missed', '${stats.missed}',
+              icon: Icons.cancel, iconColor: AppColors.errorRed),
+          if (stats.pending > 0)
+            _summaryRow('Doses pending', '${stats.pending}',
+                icon: Icons.circle_outlined, iconColor: AppColors.navy),
+          for (final r in extraRows)
+            _summaryRow(r.label, r.value),
           const SizedBox(height: 12),
           GradientPrimaryButton(
             label: 'Download Full Report',
             onPressed: () => _downloadReport(adherencePercent),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryRow(String label, String value, {IconData? icon, Color? iconColor}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(child: Text(label, style: const TextStyle(fontSize: 14))),
+          if (icon != null) ...[
+            Icon(icon, size: 18, color: iconColor),
+            const SizedBox(width: 4),
+          ],
+          Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
         ],
       ),
     );
@@ -648,68 +615,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ),
     );
   }
-
-  Widget _dayPerf(String day, int pct, Color color) {
-    return Container(
-      width: 72,
-      margin: const EdgeInsets.only(right: 8),
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.6), width: 1.5),
-      ),
-      child: Column(
-        children: [
-          Text(day, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
-          const SizedBox(height: 6),
-          Text('$pct%', style: TextStyle(fontWeight: FontWeight.w800, color: color)),
-        ],
-      ),
-    );
-  }
-
-  Widget _weekBox(String label, int pct, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
-      ),
-      child: Column(
-        children: [
-          Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 6),
-          Text('$pct%', style: TextStyle(fontWeight: FontWeight.w800, color: color)),
-        ],
-      ),
-    );
-  }
-
-  Widget _monthBox(String mon, int pct, Color color) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.45)),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(mon, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
-          Text('$pct%', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: color)),
-        ],
-      ),
-    );
-  }
 }
 
 class _SummaryRow {
   final String label;
   final String value;
-  final IconData? icon;
-  final Color? iconColor;
-  final bool trend;
-  const _SummaryRow(this.label, this.value, {this.icon, this.iconColor, this.trend = false});
+  const _SummaryRow(this.label, this.value);
 }

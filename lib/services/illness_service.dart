@@ -16,7 +16,7 @@ class IllnessService {
       _firestore.collection(FirebaseCollections.medications);
 
   Stream<List<Map<String, String>>> watchIllnessMaps(String userId) {
-    final controller = StreamController<List<Map<String, String>>>();
+    final controller = StreamController<List<Map<String, String>>>.broadcast();
     QuerySnapshot<Map<String, dynamic>>? lastIllnesses;
     QuerySnapshot<Map<String, dynamic>>? lastMeds;
 
