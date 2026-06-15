@@ -1,7 +1,6 @@
-import 'dart:convert';
-
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
+import 'package:carelanka_app/services/drug_interaction_service.dart';
 import 'package:carelanka_app/services/medication_service.dart';
 import 'package:carelanka_app/services/notification_service.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
@@ -10,7 +9,6 @@ import 'package:carelanka_app/widgets/carelanka/profile_dropdown_field.dart';
 import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
 
 class AddMedicationScreen extends StatefulWidget {
   const AddMedicationScreen({super.key});
@@ -383,7 +381,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
   }
 
   Future<void> _checkConflicts() async {
-    final medName = _name.text.trim().toLowerCase();
+    final medName = _name.text.trim();
     if (medName.isEmpty) {
       setState(() {
         _conflictMessage = null;
@@ -393,45 +391,19 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
     }
 
     try {
-      final conflictRaw = await rootBundle.loadString('assets/data/drug_conflicts.json');
-      final allergyRaw = await rootBundle.loadString('assets/data/allergy_map.json');
-      final conflicts = (jsonDecode(conflictRaw) as Map)['conflicts'] as List;
-      final allergyTriggers = (jsonDecode(allergyRaw) as Map)['allergy_triggers'] as List;
+      final userId = FirebaseAuth.instance.currentUser?.uid;
+      if (userId == null) return;
 
-      final userId = FirebaseAuth.instance.currentUser!.uid;
-      final existingMeds = await MedicationService().watchMedications(userId).first;
-      final existingNames = existingMeds.map((m) => (m['name'] as String? ?? '').toLowerCase()).toSet();
-
-      String? conflict;
-      for (final item in conflicts) {
-        final map = Map<String, dynamic>.from(item as Map);
-        final d1 = (map['drug1'] as String).toLowerCase();
-        final d2 = (map['drug2'] as String).toLowerCase();
-        final hitsExisting = existingNames.any((n) => n.contains(d1) || n.contains(d2));
-        final hitsNew = medName.contains(d1) || medName.contains(d2);
-        if (hitsNew && hitsExisting) {
-          final other = medName.contains(d1) ? d2 : d1;
-          conflict = 'Conflicts with: ${other[0].toUpperCase()}${other.substring(1)}. Please consult your doctor.';
-          break;
-        }
-      }
-
-      String? allergy;
-      for (final item in allergyTriggers) {
-        final map = Map<String, dynamic>.from(item as Map);
-        final triggers = (map['triggers'] as List).map((e) => e.toString().toLowerCase()).toList();
-        if (triggers.any((t) => medName.contains(t))) {
-          allergy = 'You are allergic to: ${map['allergy']}';
-          break;
-        }
-      }
+      final result = await DrugInteractionService().checkAll(medName, userId);
 
       if (!mounted) return;
       setState(() {
-        _conflictMessage = conflict;
-        _allergyMessage = allergy;
+        _conflictMessage = result.conflictMessage;
+        _allergyMessage = result.allergyMessage;
       });
-    } catch (_) {}
+    } catch (_) {
+      // Never surface a crash to the user — conflicts are advisory only.
+    }
   }
 
   Future<void> _save() async {

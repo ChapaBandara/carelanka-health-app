@@ -6,10 +6,10 @@
 class EmailJsConfig {
   EmailJsConfig._();
 
-  static const serviceId = 'service_atn464s';
-  static const templateId = 'template_j0z6ez2';
-  static const publicKey = 'VrpW5kpP9mk60-NB3';
+  static const serviceId = 'service_stj6h2s';
+  static const templateId = 'template_xmy2vaf';
+  static const publicKey = 'wW5bly7vMWh_zi8_S';
 
   /// Paste your EmailJS Private Key here (Account → Security).
-  static const privateKey = 'AXYU05Da-h7tNumMHNNXL';
+  static const privateKey = 'QifrFn5VIDbOtdnCTllgK';
 }

@@ -51,6 +51,22 @@ class NotificationService {
     }
   }
 
+  /// Cancels all scheduled notifications for [medicationId].
+  ///
+  /// Uses the same ID derivation as [scheduleMedicationReminders] so the IDs
+  /// line up correctly. [timeCount] should be at least as large as the number
+  /// of scheduled times (defaults to 10 to be safe).
+  Future<void> cancelMedicationReminders(
+    String medicationId, {
+    int timeCount = 10,
+  }) async {
+    await initialize();
+    var id = medicationId.hashCode.abs() % 100000;
+    for (var i = 0; i < timeCount; i++) {
+      await _plugin.cancel(id: id++);
+    }
+  }
+
   Future<void> scheduleAppointmentReminders({
     required String appointmentId,
     required String title,
@@ -169,6 +185,72 @@ class NotificationService {
       ),
       title: 'Checkup reminder',
       body: "You haven't had a checkup in $daysSinceCheckup days. Tap to schedule a visit.",
+    );
+  }
+
+  /// Shows an immediate low-stock warning notification.
+  Future<void> showLowStockNotification({
+    required String title,
+    required String body,
+  }) async {
+    await initialize();
+    // Derive a stable ID from the title so the same medication doesn't spam.
+    final id = 800000 + (title.hashCode.abs() % 10000);
+    await _plugin.show(
+      id: id,
+      title: title,
+      body: body,
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'stock_warnings',
+          'Stock Warnings',
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(),
+      ),
+    );
+  }
+
+  /// Shows an immediate missed-dose notification.
+  Future<void> showMissedDoseNotification({
+    required String title,
+    required String body,
+  }) async {
+    await initialize();
+    // Stable ID derived from title so the same dose doesn't spam.
+    final id = 700000 + (title.hashCode.abs() % 10000);
+    await _plugin.show(
+      id: id,
+      title: title,
+      body: body,
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'missed_doses',
+          'Missed Doses',
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(),
+      ),
+    );
+  }
+
+  /// Schedules a one-shot snooze notification [snoozeDurationMinutes] from now.
+  Future<void> scheduleSnooze({
+    required String medicationId,
+    int snoozeDurationMinutes = 15,
+  }) async {
+    await initialize();
+    final snoozeTime = DateTime.now().add(Duration(minutes: snoozeDurationMinutes));
+    final tzSnooze = tz.TZDateTime.from(snoozeTime, tz.local);
+    await _zonedSchedule(
+      id: 600000 + (medicationId.hashCode.abs() % 10000),
+      scheduledDate: tzSnooze,
+      channelId: 'medication_reminders',
+      channelName: 'Medication Reminders',
+      title: 'Medication reminder (snoozed)',
+      body: 'Your snoozed dose is due now.',
     );
   }
 }

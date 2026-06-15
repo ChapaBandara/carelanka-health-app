@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:carelanka_app/core/firebase/firebase_collections.dart';
 import 'package:carelanka_app/core/utils/medication_schedule_helper.dart';
 import 'package:carelanka_app/models/daily_dose_item.dart';
+import 'package:carelanka_app/services/adherence_service.dart';
+import 'package:carelanka_app/services/notification_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
@@ -346,6 +348,419 @@ class ReminderService {
       total: total,
       medStats: medStats,
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Adaptive reminder logic
+  // ---------------------------------------------------------------------------
+
+  /// Runs the daily adaptive reminder logic for [userId].
+  ///
+  /// Should be called once per dashboard load. Runs silently — all errors are
+  /// caught internally and never surfaced to the user.
+  Future<void> runAdaptiveLogic(String userId) async {
+    try {
+      // 1. Fetch all active medications for this user.
+      final snap = await _firestore
+          .collection(FirebaseCollections.medications)
+          .where('userId', isEqualTo: userId)
+          .where('active', isEqualTo: true)
+          .get();
+
+      final adherenceService = AdherenceService(firestore: _firestore);
+      final notificationService = NotificationService.instance;
+
+      for (final doc in snap.docs) {
+        try {
+          final data = doc.data();
+          final medId = doc.id;
+
+          // ── COLD START CHECK ────────────────────────────────────────────
+          // Skip medications that are less than 7 days old.
+          final createdAtRaw = data['createdAt'];
+          DateTime createdAt;
+          if (createdAtRaw is Timestamp) {
+            createdAt = createdAtRaw.toDate();
+          } else if (createdAtRaw is String) {
+            createdAt = DateTime.tryParse(createdAtRaw) ?? DateTime.now();
+          } else {
+            createdAt = DateTime.now();
+          }
+
+          if (DateTime.now().difference(createdAt).inDays < 7) continue;
+
+          // ── CALCULATE SCORE ─────────────────────────────────────────────
+          final score =
+              await adherenceService.calculate7DayScore(userId, medId);
+
+          final medRef = _firestore
+              .collection(FirebaseCollections.medications)
+              .doc(medId);
+
+          final scheduledTimes =
+              List<String>.from(data['scheduledTimes'] as List? ?? []);
+          final originalScheduledTimes = List<String>.from(
+              data['originalScheduledTimes'] as List? ?? []);
+          final consecutiveDaysAbove85 =
+              data['consecutiveDaysAbove85'] as int? ?? 0;
+
+          if (score < 70.0) {
+            // ── ADJUST REMINDERS ──────────────────────────────────────────
+            final delay = await adherenceService
+                .calculateAverageResponseDelay(userId, medId);
+
+            if (delay > 0) {
+              // Save backup of original times if not already saved.
+              if (originalScheduledTimes.isEmpty) {
+                try {
+                  await medRef.update({
+                    'originalScheduledTimes': scheduledTimes,
+                  });
+                } catch (_) {}
+              }
+
+              // Shift each time earlier by the average delay.
+              final newTimes = scheduledTimes
+                  .map((t) => adjustTime(t, delay))
+                  .toList();
+
+              // Persist new times and reset streak counter.
+              try {
+                await medRef.update({
+                  'scheduledTimes': newTimes,
+                  'consecutiveDaysAbove85': 0,
+                });
+              } catch (_) {}
+
+              // Reschedule notifications.
+              try {
+                await notificationService.cancelMedicationReminders(
+                  medId,
+                  timeCount: scheduledTimes.length + 5,
+                );
+              } catch (_) {}
+
+              try {
+                final name =
+                    data['name'] as String? ?? data['title'] as String? ?? 'Medication';
+                await notificationService.scheduleMedicationReminders(
+                  medicationId: medId,
+                  title: name,
+                  timeStrings: newTimes,
+                );
+              } catch (_) {}
+            }
+          } else if (score > 85.0) {
+            // ── CHECK RESET ───────────────────────────────────────────────
+            final current = consecutiveDaysAbove85;
+
+            if (current >= 2 && originalScheduledTimes.isNotEmpty) {
+              // 3rd consecutive day above 85 → restore original times.
+              try {
+                await medRef.update({
+                  'scheduledTimes': originalScheduledTimes,
+                  'originalScheduledTimes': [],
+                  'consecutiveDaysAbove85': 0,
+                });
+              } catch (_) {}
+
+              try {
+                await notificationService.cancelMedicationReminders(
+                  medId,
+                  timeCount: scheduledTimes.length + 5,
+                );
+              } catch (_) {}
+
+              try {
+                final name =
+                    data['name'] as String? ?? data['title'] as String? ?? 'Medication';
+                await notificationService.scheduleMedicationReminders(
+                  medicationId: medId,
+                  title: name,
+                  timeStrings: originalScheduledTimes,
+                );
+              } catch (_) {}
+            } else {
+              // Increment streak counter.
+              try {
+                await medRef.update({
+                  'consecutiveDaysAbove85': current + 1,
+                });
+              } catch (_) {}
+            }
+          } else {
+            // ── SCORE BETWEEN 70 AND 85 ───────────────────────────────────
+            // Reset streak counter.
+            try {
+              await medRef.update({
+                'consecutiveDaysAbove85': 0,
+              });
+            } catch (_) {}
+          }
+        } catch (_) {
+          // Never let a single medication failure stop the rest.
+          continue;
+        }
+      }
+    } catch (_) {
+      // Top-level silent catch — never surface to the user.
+    }
+  }
+
+  /// Shifts [timeStr] (format "HH:mm") earlier by [delayMinutes].
+  ///
+  /// Handles midnight wrap-around. Example: `adjustTime("08:00", 25.0)`
+  /// returns `"07:35"`.
+  String adjustTime(String timeStr, double delayMinutes) {
+    final parts = timeStr.trim().split(':');
+    if (parts.length != 2) return timeStr;
+    final hours = int.tryParse(parts[0]) ?? 0;
+    final minutes = int.tryParse(parts[1]) ?? 0;
+
+    final totalMins = hours * 60 + minutes;
+    var newTotalMins = totalMins - delayMinutes.round();
+    if (newTotalMins < 0) newTotalMins += 1440; // wrap 24 h
+
+    final newHours = newTotalMins ~/ 60;
+    final newMins = newTotalMins % 60;
+    return '${newHours.toString().padLeft(2, '0')}:${newMins.toString().padLeft(2, '0')}';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Missed dose detection
+  // ---------------------------------------------------------------------------
+
+  /// Writes a single reminder log entry to Firestore.
+  ///
+  /// [responseLatencyMinutes] is derived automatically from [actualResponseTime]
+  /// when provided. All fields are nullable-safe.
+  Future<void> logReminderAction({
+    required String userId,
+    required String medicationId,
+    required String illnessId,
+    required DateTime scheduledTime,
+    required String status,
+    DateTime? actualResponseTime,
+  }) async {
+    try {
+      await _col.add({
+        'userId': userId,
+        'medicationId': medicationId,
+        'illnessId': illnessId,
+        'scheduledTime': Timestamp.fromDate(scheduledTime),
+        if (actualResponseTime != null) ...{
+          'actualResponseTime': Timestamp.fromDate(actualResponseTime),
+          'responseLatencyMinutes': actualResponseTime
+              .difference(scheduledTime)
+              .inMinutes
+              .toDouble(),
+        },
+        'status': status,
+        'createdAt': Timestamp.fromDate(DateTime.now()),
+      });
+    } catch (_) {}
+  }
+
+  /// Scans today's schedule for every active medication and auto-logs any
+  /// dose that was due more than 60 minutes ago with no existing log.
+  Future<void> checkMissedReminders(String userId) async {
+    try {
+      final medsSnap = await _firestore
+          .collection(FirebaseCollections.medications)
+          .where('userId', isEqualTo: userId)
+          .where('active', isEqualTo: true)
+          .get();
+
+      final now = DateTime.now();
+      final todayBase = DateTime(now.year, now.month, now.day);
+
+      for (final medDoc in medsSnap.docs) {
+        try {
+          final data = medDoc.data();
+          final medId = medDoc.id;
+          final illnessId = data['illnessId'] as String? ?? '';
+          final medName = data['name'] as String? ?? 'Medication';
+          final dosage = data['dosage'] as String? ?? '';
+          final times =
+              List<String>.from(data['scheduledTimes'] as List? ?? []);
+
+          for (final timeStr in times) {
+            try {
+              // Parse both "HH:mm" (24-hr) and "h:mm a" (12-hr AM/PM).
+              final scheduledDateTime =
+                  _parseScheduledTime(timeStr.trim(), todayBase);
+              if (scheduledDateTime == null) continue;
+
+              // Only consider doses that fired more than 60 minutes ago.
+              if (now.difference(scheduledDateTime).inMinutes <= 60) continue;
+
+              // Check for any existing log within ±5 minutes.
+              final windowStart =
+                  scheduledDateTime.subtract(const Duration(minutes: 5));
+              final windowEnd =
+                  scheduledDateTime.add(const Duration(minutes: 5));
+
+              final logsSnap = await _col
+                  .where('userId', isEqualTo: userId)
+                  .where('medicationId', isEqualTo: medId)
+                  .where('scheduledTime',
+                      isGreaterThanOrEqualTo:
+                          Timestamp.fromDate(windowStart))
+                  .where('scheduledTime',
+                      isLessThanOrEqualTo: Timestamp.fromDate(windowEnd))
+                  .get();
+
+              if (logsSnap.docs.isNotEmpty) continue;
+
+              // No log found — record as missed.
+              await logReminderAction(
+                userId: userId,
+                medicationId: medId,
+                illnessId: illnessId,
+                scheduledTime: scheduledDateTime,
+                status: 'missed',
+              );
+
+              await createMissedDoseAlert(
+                userId: userId,
+                medicationName: medName,
+                dosage: dosage,
+                scheduledTime: scheduledDateTime,
+              );
+            } catch (_) {
+              continue;
+            }
+          }
+        } catch (_) {
+          continue;
+        }
+      }
+    } catch (_) {}
+  }
+
+  /// Creates a Firestore alert and fires a local notification for a missed dose.
+  Future<void> createMissedDoseAlert({
+    required String userId,
+    required String medicationName,
+    required String dosage,
+    required DateTime scheduledTime,
+  }) async {
+    final timeStr = DateFormat('h:mm a').format(scheduledTime);
+    final doseLabel =
+        [medicationName, if (dosage.isNotEmpty) dosage].join(' ');
+
+    try {
+      await _firestore.collection(FirebaseCollections.alerts).add({
+        'userId': userId,
+        'type': 'missed',
+        'message': 'You missed your $timeStr dose of $doseLabel',
+        'read': false,
+        'createdAt': Timestamp.fromDate(DateTime.now()),
+      });
+    } catch (_) {}
+
+    try {
+      await NotificationService.instance.showMissedDoseNotification(
+        title: 'Missed Dose',
+        body: 'You missed your $medicationName dose scheduled at $timeStr',
+      );
+    } catch (_) {}
+  }
+
+  /// Parses a time string in either "HH:mm" (24-hr) or "h:mm a" (12-hr)
+  /// format and returns a [DateTime] on [day].
+  DateTime? _parseScheduledTime(String timeStr, DateTime day) {
+    // Try 12-hr format first: "8:00 AM", "12:30 PM"
+    try {
+      final parsed = DateFormat('h:mm a').parse(timeStr);
+      return DateTime(day.year, day.month, day.day, parsed.hour, parsed.minute);
+    } catch (_) {}
+
+    // Fall back to 24-hr "HH:mm": "08:00", "20:30"
+    final parts = timeStr.split(':');
+    if (parts.length == 2) {
+      final h = int.tryParse(parts[0]);
+      final m = int.tryParse(parts[1]);
+      if (h != null && m != null) {
+        return DateTime(day.year, day.month, day.day, h, m);
+      }
+    }
+    return null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Notification action handler
+  // ---------------------------------------------------------------------------
+
+  /// Processes a notification action tap (Taken / Snooze / Skip).
+  ///
+  /// Call this from your notification callback with the decoded payload fields.
+  /// Lives in [ReminderService] (not [NotificationService]) to avoid a circular
+  /// import — reminder_service already imports notification_service.
+  ///
+  /// [actionId]           — `'taken'`, `'snoozed'`, or `'skipped'`
+  /// [scheduledTimeMs]    — `scheduledTime.millisecondsSinceEpoch` from payload
+  /// [snoozeDurationMinutes] — default 15
+  static Future<void> handleNotificationAction({
+    required String actionId,
+    required String userId,
+    required String medicationId,
+    required String illnessId,
+    required int scheduledTimeMs,
+    int snoozeDurationMinutes = 15,
+  }) async {
+    final reminder = ReminderService();
+    final adherence = AdherenceService();
+    final now = DateTime.now();
+    final scheduledTime = DateTime.fromMillisecondsSinceEpoch(scheduledTimeMs);
+
+    switch (actionId) {
+      case 'taken':
+        try {
+          await reminder.logReminderAction(
+            userId: userId,
+            medicationId: medicationId,
+            illnessId: illnessId,
+            scheduledTime: scheduledTime,
+            status: 'confirmed',
+            actualResponseTime: now,
+          );
+        } catch (_) {}
+        try {
+          await adherence.decrementStock(medicationId, userId);
+        } catch (_) {}
+
+      case 'snoozed':
+        try {
+          await reminder.logReminderAction(
+            userId: userId,
+            medicationId: medicationId,
+            illnessId: illnessId,
+            scheduledTime: scheduledTime,
+            status: 'snoozed',
+            actualResponseTime: now,
+          );
+        } catch (_) {}
+        // Reschedule for now + snooze duration.
+        try {
+          await NotificationService.instance.scheduleSnooze(
+            medicationId: medicationId,
+            snoozeDurationMinutes: snoozeDurationMinutes,
+          );
+        } catch (_) {}
+
+      case 'skipped':
+        try {
+          await reminder.logReminderAction(
+            userId: userId,
+            medicationId: medicationId,
+            illnessId: illnessId,
+            scheduledTime: scheduledTime,
+            status: 'skipped',
+            actualResponseTime: now,
+          );
+        } catch (_) {}
+    }
   }
 }
 

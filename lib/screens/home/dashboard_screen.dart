@@ -4,10 +4,12 @@ import 'package:carelanka_app/core/utils/greeting_helper.dart';
 import 'package:carelanka_app/core/utils/medication_schedule_helper.dart';
 import 'package:carelanka_app/providers/auth_provider.dart';
 import 'package:carelanka_app/providers/user_data_provider.dart';
+import 'package:carelanka_app/services/adherence_service.dart';
 import 'package:carelanka_app/services/alert_service.dart';
 import 'package:carelanka_app/services/appointment_service.dart';
 import 'package:carelanka_app/services/illness_service.dart';
 import 'package:carelanka_app/services/medication_service.dart';
+import 'package:carelanka_app/services/checkup_service.dart';
 import 'package:carelanka_app/services/reminder_service.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
 import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuth;
@@ -15,8 +17,44 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  bool _checkupOverdue = false;
+  int _daysSinceVisit = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Run background checks and load checkup state after the first frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+
+      // Fire-and-forget background tasks.
+      ReminderService().runAdaptiveLogic(uid).catchError((_) {});
+      AdherenceService().checkAllMedicationsStock(uid).catchError((_) {});
+      ReminderService().checkMissedReminders(uid).catchError((_) {});
+
+      // Load checkup banner state — silently, never surfacing errors.
+      try {
+        final service = CheckupService();
+        final overdue = await service.isCheckupOverdue(uid);
+        final days = await service.getDaysSinceLastVisit(uid);
+        if (mounted) {
+          setState(() {
+            _checkupOverdue = overdue;
+            _daysSinceVisit = days;
+          });
+        }
+      } catch (_) {}
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -74,6 +112,7 @@ class DashboardScreen extends StatelessWidget {
                   ),
                 ] else ...[
                   const SizedBox(height: 20),
+                  if (_checkupOverdue) ...[_checkupBanner(context), const SizedBox(height: 14)],
                   _medicationOverviewSection(context),
                   const SizedBox(height: 22),
                   const Text('Quick actions', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
@@ -99,6 +138,56 @@ class DashboardScreen extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  Widget _checkupBanner(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF8E1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFFFD54F)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 2),
+            child: Icon(Icons.health_and_safety_outlined, color: Color(0xFFF9A825), size: 22),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Checkup Overdue',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Color(0xFF5D4037)),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  "You haven't had a checkup in $_daysSinceVisit day${_daysSinceVisit == 1 ? '' : 's'}.",
+                  style: const TextStyle(color: Color(0xFF795548), fontSize: 13, height: 1.4),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              backgroundColor: const Color(0xFFFDD835),
+              foregroundColor: const Color(0xFF5D4037),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pushNamed(context, AppRoutes.appointments),
+            child: const Text('Schedule Now', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -168,28 +257,35 @@ class DashboardScreen extends StatelessWidget {
                 final nextDose = MedicationScheduleHelper.nextDoseToday(activeMeds, now);
                 final hasMeds = activeMeds.isNotEmpty;
 
-                return Column(
-                  children: [
-                    if (!hasMeds)
-                      _emptyOverview()
-                    else
-                      _overviewCard(
-                        takenDoses: taken,
-                        totalDoses: totalDoses,
-                        activeMedicationCount: activeMeds.length,
-                      ),
-                    const SizedBox(height: 14),
-                    if (nextDose != null)
-                      _nextReminderCard(
-                        timeLabel: nextDose.label,
-                        medicationLabel: [
-                          nextDose.name,
-                          if (nextDose.dosage.isNotEmpty) nextDose.dosage,
-                        ].join(' '),
-                      )
-                    else
-                      _emptyNextReminder(),
-                  ],
+                return FutureBuilder<AdherenceResult>(
+                  future: AdherenceService().calculateOverallScore(userId),
+                  builder: (context, adherenceSnap) {
+                    final adherence = adherenceSnap.data;
+                    return Column(
+                      children: [
+                        if (!hasMeds)
+                          _emptyOverview()
+                        else
+                          _overviewCard(
+                            takenDoses: taken,
+                            totalDoses: totalDoses,
+                            activeMedicationCount: activeMeds.length,
+                            adherence: adherence,
+                          ),
+                        const SizedBox(height: 14),
+                        if (nextDose != null)
+                          _nextReminderCard(
+                            timeLabel: nextDose.label,
+                            medicationLabel: [
+                              nextDose.name,
+                              if (nextDose.dosage.isNotEmpty) nextDose.dosage,
+                            ].join(' '),
+                          )
+                        else
+                          _emptyNextReminder(),
+                      ],
+                    );
+                  },
                 );
               },
             );
@@ -274,8 +370,10 @@ class DashboardScreen extends StatelessWidget {
     required int takenDoses,
     required int totalDoses,
     required int activeMedicationCount,
+    AdherenceResult? adherence,
   }) {
-    final percent = totalDoses == 0 ? 0 : ((takenDoses / totalDoses) * 100).round();
+    // Today's dose progress drives the pie chart fill.
+    final todayPercent = totalDoses == 0 ? 0 : ((takenDoses / totalDoses) * 100).round();
     final remaining = (totalDoses - takenDoses).clamp(0, totalDoses).toDouble();
     final takenValue = takenDoses.toDouble();
     final chartSections = totalDoses == 0
@@ -288,6 +386,11 @@ class DashboardScreen extends StatelessWidget {
             if (remaining > 0)
               PieChartSectionData(value: remaining, radius: 14, showTitle: false, color: const Color(0xFFE6E6E6)),
           ];
+
+    // 7-day adherence label — shown when data is available.
+    final adherenceLabel = adherence != null && adherence.total > 0
+        ? '${adherence.confirmed} of ${adherence.total} confirmed (7d)'
+        : '$activeMedicationCount active medication${activeMedicationCount == 1 ? '' : 's'}';
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -312,9 +415,24 @@ class DashboardScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '$activeMedicationCount active medication${activeMedicationCount == 1 ? '' : 's'}',
+                  adherenceLabel,
                   style: const TextStyle(color: AppColors.textGrey, fontSize: 13),
                 ),
+                if (adherence != null && adherence.total > 0) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '7-day adherence: ${adherence.scoreInt}%',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: adherence.scoreInt >= 80
+                          ? AppColors.successGreen
+                          : adherence.scoreInt >= 50
+                              ? AppColors.warningAmber
+                              : AppColors.errorRed,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -331,7 +449,7 @@ class DashboardScreen extends StatelessWidget {
                     sections: chartSections,
                   ),
                 ),
-                Text('$percent%', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                Text('$todayPercent%', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
               ],
             ),
           ),

@@ -1,6 +1,7 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/providers/auth_provider.dart';
+import 'package:carelanka_app/services/adherence_service.dart';
 import 'package:carelanka_app/services/reminder_service.dart';
 import 'package:carelanka_app/services/report_service.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
@@ -22,6 +23,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   int _tab = 0;
   DateTime _anchor = DateTime.now();
   final _reportService = ReportService();
+  final _adherenceService = AdherenceService();
 
   (DateTime?, DateTime?) _periodRange() {
     switch (_tab) {
@@ -273,32 +275,32 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ];
 
   // ─────────────────── Weekly ───────────────────
-  List<Widget> _weeklyBody(int adherencePercent, DoseStats stats) => [
-        _adherenceCard(
-          title: "This Week's Adherence",
-          percent: adherencePercent,
-          taken: stats.taken,
-          missed: stats.missed,
-          pending: stats.pending,
-          total: stats.total,
-        ),
-        const SizedBox(height: 20),
-        _summaryCard(
-          title: 'Weekly Health Summary',
-          adherencePercent: adherencePercent.toDouble(),
-          stats: stats,
-          extraRows: [],
-        ),
-        const SizedBox(height: 16),
-        _insightCard(
-          'Weekly Insight',
-          stats.missed > 0
-              ? 'You missed ${stats.missed} dose${stats.missed == 1 ? '' : 's'} this week. Review your schedule and adjust reminder times if needed.'
-              : stats.taken > 0
-                  ? 'Excellent week! All recorded doses were taken. Your consistency is improving.'
-                  : 'No doses recorded this week. Start tracking your medications to see weekly insights.',
-        ),
-      ];
+  List<Widget> _weeklyBody(int adherencePercent, DoseStats stats) {
+    // Use the real adherence score to drive both the ring badge and
+    // the insight text, falling back to the period-level percent when
+    // no 7-day data is available.
+    final insight = _adherenceService.generateInsightText(adherencePercent.toDouble());
+    return [
+      _adherenceCard(
+        title: "This Week's Adherence",
+        percent: adherencePercent,
+        taken: stats.taken,
+        missed: stats.missed,
+        pending: stats.pending,
+        total: stats.total,
+        insightText: insight,
+      ),
+      const SizedBox(height: 20),
+      _summaryCard(
+        title: 'Weekly Health Summary',
+        adherencePercent: adherencePercent.toDouble(),
+        stats: stats,
+        extraRows: [],
+      ),
+      const SizedBox(height: 16),
+      _insightCard('Weekly Insight', insight),
+    ];
+  }
 
   // ─────────────────── Monthly ───────────────────
   List<Widget> _monthlyBody(int adherencePercent, DoseStats stats) => [
@@ -363,6 +365,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
     required int missed,
     required int pending,
     required int total,
+    /// Optional insight text shown directly below the ring. When provided
+    /// (weekly tab), the AI-generated text appears at a glance without the
+    /// user having to scroll to the insight card.
+    String? insightText,
   }) {
     return Container(
       padding: const EdgeInsets.all(18),
@@ -441,6 +447,29 @@ class _ReportsScreenState extends State<ReportsScreen> {
               ),
             ],
           ),
+          // Insight text shown below the ring when available (weekly tab).
+          if (insightText != null) ...[
+            const SizedBox(height: 14),
+            const Divider(height: 1),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.auto_awesome, size: 16, color: Colors.blue.shade600),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    insightText,
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.45,
+                      color: Colors.blueGrey.shade700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );

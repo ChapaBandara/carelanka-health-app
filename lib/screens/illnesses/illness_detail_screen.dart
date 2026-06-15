@@ -1,6 +1,7 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
+import 'package:carelanka_app/services/adherence_service.dart';
 import 'package:carelanka_app/services/illness_service.dart';
 import 'package:carelanka_app/services/medication_service.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
@@ -299,6 +300,21 @@ class IllnessDetailScreen extends StatelessWidget {
     final times = (med['scheduledTimes'] as List?)?.map((e) => e.toString()).toList() ?? [];
     final instruction = [dosage, frequency].where((s) => s.isNotEmpty).join(', ');
 
+    // Stock fields — only present when the user filled in stock details.
+    final stockCount = med['stockCount'] as int?;
+    final lowStockThreshold = med['lowStockThreshold'] as int? ?? 0;
+
+    // Compute days remaining when stock data is available.
+    int? daysRemaining;
+    bool stockLow = false;
+    if (stockCount != null) {
+      final adherence = AdherenceService();
+      final doseCount = _doseCountForFrequency(frequency);
+      daysRemaining = adherence.calculateStockDaysRemaining(stockCount, doseCount);
+      stockLow = lowStockThreshold > 0 &&
+          adherence.isStockLow(stockCount, doseCount, lowStockThreshold);
+    }
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -359,6 +375,53 @@ class IllnessDetailScreen extends StatelessWidget {
                           .toList(),
                     ),
                   ],
+                  // ── Stock status row ──────────────────────────────────
+                  if (daysRemaining != null) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.inventory_2_outlined,
+                              size: 13,
+                              color: _stockDayColor(daysRemaining),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '$daysRemaining day${daysRemaining == 1 ? '' : 's'} left',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: _stockDayColor(daysRemaining),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (stockLow)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: AppColors.errorRed.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: AppColors.errorRed.withValues(alpha: 0.4)),
+                            ),
+                            child: const Text(
+                              'Running Low!',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.errorRed,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -385,6 +448,27 @@ class IllnessDetailScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Returns the colour for the stock days-remaining label.
+  Color _stockDayColor(int days) {
+    if (days <= 3) return AppColors.errorRed;
+    if (days <= 7) return AppColors.warningAmber;
+    return AppColors.successGreen;
+  }
+
+  /// Converts a frequency label to a numeric doses-per-day count.
+  int _doseCountForFrequency(String frequency) {
+    switch (frequency) {
+      case 'Once daily':
+        return 1;
+      case 'Three times daily':
+        return 3;
+      case 'Four times daily':
+        return 4;
+      default:
+        return 2;
+    }
   }
 
   Future<void> _completeIllness(
