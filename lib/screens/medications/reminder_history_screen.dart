@@ -1,5 +1,6 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:carelanka_app/models/daily_dose_item.dart';
 import 'package:carelanka_app/services/reminder_service.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
@@ -43,7 +44,46 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
     final userId = FirebaseAuth.instance.currentUser!.uid;
 
     return StreamBuilder<List<Map<String, String>>>(
-      stream: ReminderService().watchReminderMaps(userId),
+      stream: FirebaseFirestore.instance
+          .collection('reminder_logs')
+          .where('userId', isEqualTo: userId)
+          .orderBy('scheduledTime', descending: true)
+          .snapshots()
+          .map((snapshot) => snapshot.docs.map((doc) {
+                final data = doc.data();
+                final scheduled = data['scheduledTime'] as Timestamp?;
+                final action = data['actualResponseTime'] as Timestamp?;
+                final status = (data['status'] as String? ?? 'confirmed').toLowerCase();
+                final latency = (data['responseLatencyMinutes'] as int?) ?? 0;
+
+                final scheduledAt = scheduled?.toDate();
+                final now = DateTime.now();
+                final today = DateTime(now.year, now.month, now.day);
+                final yday = today.subtract(const Duration(days: 1));
+                final day = scheduledAt != null ? DateTime(scheduledAt.year, scheduledAt.month, scheduledAt.day) : null;
+
+                String dateGroup;
+                if (day == null) {
+                  dateGroup = 'Earlier';
+                } else if (day == today) {
+                  dateGroup = 'Today';
+                } else if (day == yday) {
+                  dateGroup = 'Yesterday';
+                } else {
+                  dateGroup = DateFormat.yMMMMd().format(day);
+                }
+
+                return <String, String>{
+                  'medication': data['medicationName']?.toString() ?? '',
+                  'condition': data['condition']?.toString() ?? '',
+                  'scheduled': scheduledAt != null ? DateFormat.jm().format(scheduledAt) : '—',
+                  'actionTime': action != null ? DateFormat.jm().format(action.toDate()) : '—',
+                  'status': status,
+                  'dateGroup': dateGroup,
+                  'timing': latency > 0 ? 'late' : 'on_time',
+                  'lateBy': latency > 0 ? '+$latency min' : 'On time',
+                };
+              }).toList()),
       builder: (context, historySnap) {
         return StreamBuilder<List<DailyDoseItem>>(
           stream: ReminderService().watchTodayDoses(userId),
@@ -707,6 +747,8 @@ class _HistoryCard extends StatelessWidget {
         return 'No response recorded';
       case 'snoozed':
         return 'Snoozed at: ${data['actionTime'] ?? '—'}';
+      case 'skipped':
+        return 'Skipped at: ${data['actionTime'] ?? '—'}';
       default:
         return 'Taken: ${data['actionTime'] ?? '—'}';
     }
@@ -718,6 +760,8 @@ class _HistoryCard extends StatelessWidget {
         return 'No response';
       case 'snoozed':
         return 'Snoozed';
+      case 'skipped':
+        return 'Skipped';
       case 'confirmed':
         final timing = data['timing'];
         if (timing == 'on_time') return 'On time';
@@ -745,6 +789,14 @@ class _HistoryCard extends StatelessWidget {
           iconColor: Color(0xFF8D6E63),
           badgeBg: Color(0xFFFFF9C4),
           badgeText: Color(0xFF8D6E63),
+        );
+      case 'skipped':
+        return const _StatusStyle(
+          icon: Icons.fast_forward_rounded,
+          iconBg: Color(0xFFEEEEEE),
+          iconColor: Color(0xFF757575),
+          badgeBg: Color(0xFFEEEEEE),
+          badgeText: Color(0xFF757575),
         );
       default:
         return const _StatusStyle(

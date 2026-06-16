@@ -1,5 +1,6 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/design/carelanka_gradients.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:carelanka_app/providers/auth_provider.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:flutter/material.dart';
@@ -10,14 +11,32 @@ import 'package:qr_flutter/qr_flutter.dart';
 class MyQrScreen extends StatelessWidget {
   const MyQrScreen({super.key});
 
+  Future<String> _resolveName() async {
+    final user = FirebaseAuth.instance.currentUser!;
+    final displayName = user.displayName?.trim() ?? '';
+    if (displayName.isNotEmpty) return displayName;
+
+    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    final data = userDoc.data();
+    final name = data?['fullName']?.toString().trim() ?? '';
+    return name.isNotEmpty ? name : 'CareLanka User';
+  }
+
   @override
   Widget build(BuildContext context) {
     final profile = context.watch<AuthProvider>().profile;
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? 'carelanka-user';
+    final uid = FirebaseAuth.instance.currentUser!.uid;
     final shortId = uid.length > 8 ? uid.substring(0, 8).toUpperCase() : uid.toUpperCase();
-    final name = profile?.fullName ?? 'CareLanka User';
 
-    return Scaffold(
+    return FutureBuilder<String>(
+      future: _resolveName(),
+      builder: (context, snapshot) {
+        final name = snapshot.data?.trim().isNotEmpty == true
+            ? snapshot.data!
+            : (profile?.fullName.trim().isNotEmpty == true ? profile!.fullName : 'CareLanka User');
+        final qrValue = 'carelanka://link?userId=$uid&name=${Uri.encodeComponent(name)}';
+
+        return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: Colors.white,
@@ -66,7 +85,7 @@ class MyQrScreen extends StatelessWidget {
                       border: Border.all(color: const Color(0xFFEEEEEE)),
                     ),
                     child: QrImageView(
-                      data: 'carelanka://link/$uid',
+                      data: qrValue,
                       version: QrVersions.auto,
                       size: 200,
                       eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: AppColors.navy),
@@ -154,6 +173,8 @@ class MyQrScreen extends StatelessWidget {
           ],
         ),
       ),
+    );
+      },
     );
   }
 }

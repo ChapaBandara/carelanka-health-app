@@ -1,6 +1,7 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/design/carelanka_gradients.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/services/health_record_service.dart';
 import 'package:carelanka_app/widgets/carelanka/carelanka_bottom_nav.dart';
@@ -45,7 +46,28 @@ class _DocumentsLibraryScreenState extends State<DocumentsLibraryScreen> {
     final userId = FirebaseAuth.instance.currentUser!.uid;
 
     return StreamBuilder<List<Map<String, String>>>(
-      stream: HealthRecordService().watchRecordMaps(userId),
+      stream: FirebaseFirestore.instance
+          .collection('health_records')
+          .where('userId', isEqualTo: userId)
+          .orderBy('visitDate', descending: true)
+          .snapshots()
+          .map((snapshot) => snapshot.docs
+              .where((doc) => (doc.data()['documentUrl'] as String? ?? '').trim().isNotEmpty)
+              .map((doc) {
+                final data = doc.data();
+                final visitDate = (data['visitDate'] as Timestamp?)?.toDate();
+                return <String, String>{
+                  'recordId': doc.id,
+                  'doctor': data['doctorName']?.toString() ?? '',
+                  'hospital': data['hospital']?.toString() ?? '',
+                  'diagnosis': data['diagnosis']?.toString() ?? '',
+                  'documentUrl': data['documentUrl']?.toString() ?? '',
+                  'documentType': data['documentType']?.toString() ?? '',
+                  'title': data['diagnosis']?.toString() ?? data['doctorName']?.toString() ?? 'Document',
+                  'date': visitDate != null ? '${visitDate.day}/${visitDate.month}/${visitDate.year}' : '',
+                  'monthDay': visitDate != null ? '${visitDate.day}/${visitDate.month}' : '',
+                };
+              }).toList()),
       builder: (context, snapshot) {
         final records = _filter(snapshot.data ?? []);
 

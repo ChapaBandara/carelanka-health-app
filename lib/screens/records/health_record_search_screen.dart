@@ -1,6 +1,6 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
-import 'package:carelanka_app/services/health_record_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -17,10 +17,12 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
   final _search = TextEditingController();
   int _chip = 0;
   final _chips = ['All', 'Prescriptions', 'Lab Reports', 'Doctors'];
+  late final Future<List<Map<String, String>>> _recordsFuture;
 
   @override
   void initState() {
     super.initState();
+    _recordsFuture = _fetchRecords();
     _search.addListener(() => setState(() {}));
   }
 
@@ -30,8 +32,42 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
     super.dispose();
   }
 
+  Future<List<Map<String, String>>> _fetchRecords() async {
+    final userId = FirebaseAuth.instance.currentUser!.uid;
+    final snapshot = await FirebaseFirestore.instance.collection('health_records').where('userId', isEqualTo: userId).get();
+    return snapshot.docs.map((doc) {
+      final data = doc.data();
+      final visitDate = (data['visitDate'] as Timestamp?)?.toDate();
+      return <String, String>{
+        'recordId': doc.id,
+        'doctor': data['doctorName']?.toString() ?? '',
+        'hospital': data['hospital']?.toString() ?? '',
+        'diagnosis': data['diagnosis']?.toString() ?? '',
+        'notes': data['notes']?.toString() ?? '',
+        'documentType': data['documentType']?.toString() ?? '',
+        'title': data['diagnosis']?.toString() ?? data['doctorName']?.toString() ?? 'Record',
+        'date': visitDate != null ? '${visitDate.day}/${visitDate.month}/${visitDate.year}' : '',
+      };
+    }).toList();
+  }
+
   List<Map<String, String>> _filter(List<Map<String, String>> records) {
-    var list = HealthRecordService().searchRecords(records, _search.text);
+    final q = _search.text.trim().toLowerCase();
+    var list = q.isEmpty
+        ? records
+        : records.where((r) {
+            final doctor = (r['doctor'] ?? '').toLowerCase();
+            final hospital = (r['hospital'] ?? '').toLowerCase();
+            final diagnosis = (r['diagnosis'] ?? '').toLowerCase();
+            final notes = (r['notes'] ?? '').toLowerCase();
+            final documentType = (r['documentType'] ?? '').toLowerCase();
+            return doctor.contains(q) ||
+                hospital.contains(q) ||
+                diagnosis.contains(q) ||
+                notes.contains(q) ||
+                documentType.contains(q);
+          }).toList();
+
     if (_chip == 0) return list;
     final chip = _chips[_chip].toLowerCase();
     return list.where((r) {
@@ -45,11 +81,10 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final userId = FirebaseAuth.instance.currentUser!.uid;
     final query = _search.text.trim();
 
-    return StreamBuilder<List<Map<String, String>>>(
-      stream: HealthRecordService().watchRecordMaps(userId),
+    return FutureBuilder<List<Map<String, String>>>(
+      future: _recordsFuture,
       builder: (context, snapshot) {
         final results = query.isEmpty ? <Map<String, String>>[] : _filter(snapshot.data ?? []);
 

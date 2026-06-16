@@ -2,6 +2,7 @@ import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/utils/validators.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:carelanka_app/widgets/carelanka/labeled_text_field.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
@@ -19,6 +20,38 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   bool o1 = true;
   bool o2 = true;
   bool o3 = true;
+
+  Future<void> _updatePassword() async {
+    if (!_formKey.currentState!.validate()) return;
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null || user.email == null) {
+        throw Exception('No authenticated user found');
+      }
+      final credential = EmailAuthProvider.credential(
+        email: user.email!,
+        password: _cur.text.trim(),
+      );
+      await user.reauthenticateWithCredential(credential);
+      await user.updatePassword(_nw.text.trim());
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Password changed successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      Navigator.maybePop(context);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString()),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 
   @override
   void dispose() {
@@ -74,7 +107,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   validator: (v) => v != _nw.text ? 'Mismatch' : null,
                 ),
                 const SizedBox(height: 28),
-                GradientPrimaryButton(label: 'Update password', onPressed: () => Navigator.maybePop(context)),
+                GradientPrimaryButton(label: 'Update password', onPressed: _updatePassword),
               ],
             ),
           ),

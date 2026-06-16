@@ -1,14 +1,57 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/design/carelanka_gradients.dart';
-import 'package:carelanka_app/widgets/carelanka/carelanka_success_sheet.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 /// Post-scan link confirmation — complements CareLanka UI #48 / #49.
 class LinkConfirmationScreen extends StatelessWidget {
   const LinkConfirmationScreen({super.key});
 
+  Future<void> _confirmLink(BuildContext context, {required String scannedUserId, required String scannedName, required String relationship}) async {
+    try {
+      final ownerId = FirebaseAuth.instance.currentUser!.uid;
+      final docRef = FirebaseFirestore.instance.collection('family_profiles').doc();
+      await docRef.set({
+        'profileId': docRef.id,
+        'ownerId': ownerId,
+        'hasOwnAccount': true,
+        'linkedUserId': scannedUserId,
+        'fullName': scannedName,
+        'relationship': relationship,
+        'dateOfBirth': null,
+        'gender': null,
+        'bloodType': null,
+        'allergies': <String>[],
+        'createdAt': Timestamp.fromDate(DateTime.now()),
+      });
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Link created successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      Navigator.pop(context);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString()),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final args = ModalRoute.of(context)?.settings.arguments;
+    final map = args is Map ? Map<String, dynamic>.from(args) : <String, dynamic>{};
+    final scannedUserId = map['scannedUserId']?.toString() ?? '';
+    final scannedName = map['scannedName']?.toString() ?? 'Family Member';
+    final relationship = map['relationship']?.toString() ?? 'Family';
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -28,7 +71,7 @@ class LinkConfirmationScreen extends StatelessWidget {
               child: const Icon(Icons.link, size: 36, color: AppColors.primaryTeal),
             ),
             const SizedBox(height: 18),
-            const Text('Link with Kamal Perera?', textAlign: TextAlign.center, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+            Text('Link with $scannedName?', textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
             const SizedBox(height: 8),
             const Text(
               'They will be able to view shared health information after you both confirm.',
@@ -40,13 +83,12 @@ class LinkConfirmationScreen extends StatelessWidget {
               color: Colors.transparent,
               child: InkWell(
                 onTap: () async {
-                  await showCareLankaSuccessSheet(
+                  await _confirmLink(
                     context,
-                    icon: Icons.person_add_alt_1_rounded,
-                    title: 'Invitation Sent!',
-                    message: 'Kamal Perera will be notified to confirm the family link.',
+                    scannedUserId: scannedUserId,
+                    scannedName: scannedName,
+                    relationship: relationship,
                   );
-                  if (context.mounted) Navigator.pop(context);
                 },
                 borderRadius: BorderRadius.circular(14),
                 child: Ink(

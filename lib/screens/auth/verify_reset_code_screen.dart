@@ -1,11 +1,6 @@
-import 'dart:async';
-
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
-import 'package:carelanka_app/core/firebase/auth_notifications.dart';
-import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
-import 'package:carelanka_app/services/email_otp_service.dart';
-import 'package:carelanka_app/services/emailjs_send_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,22 +15,15 @@ class VerifyResetCodeScreen extends StatefulWidget {
 class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
   final _controllers = List.generate(6, (_) => TextEditingController());
   final _nodes = List.generate(6, (_) => FocusNode());
-  final _emailOtpService = EmailOtpService.instance;
   bool _verifying = false;
-  bool _resending = false;
-  Timer? _countdownTimer;
-  Duration _remaining = Duration.zero;
 
   @override
   void initState() {
     super.initState();
-    _syncCountdown();
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) => _syncCountdown());
   }
 
   @override
   void dispose() {
-    _countdownTimer?.cancel();
     for (final c in _controllers) {
       c.dispose();
     }
@@ -58,21 +46,6 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
 
   String get _code => _controllers.map((c) => c.text).join();
 
-  bool get _canResend => !_resending && _remaining <= Duration.zero;
-
-  void _syncCountdown() {
-    final remaining = _emailOtpService.remainingOtpTime ?? Duration.zero;
-    if (!mounted) return;
-    setState(() => _remaining = remaining);
-  }
-
-  String _formatCountdown(Duration duration) {
-    final totalSeconds = duration.inSeconds;
-    final minutes = totalSeconds ~/ 60;
-    final seconds = totalSeconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-  }
-
   void _onChanged(int index, String value) {
     if (value.length == 1 && index < 5) {
       _nodes[index + 1].requestFocus();
@@ -92,50 +65,36 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
 
     setState(() => _verifying = true);
     try {
-      try {
-        await _emailOtpService.verifyOtp(email: _email, code: _code);
-      } on OtpIncorrectException {
-        if (!mounted) return;
-        showFirebaseErrorSnackBar(context, 'Incorrect code. Try again.');
-        return;
-      } on OtpExpiredException {
-        if (!mounted) return;
-        showFirebaseErrorSnackBar(context, 'Code expired. Please request a new one.');
+      final nowTs = Timestamp.fromDate(DateTime.now());
+      final query = await FirebaseFirestore.instance
+          .collection('password_reset_otps')
+          .where('email', isEqualTo: _email)
+          .where('otp', isEqualTo: _code)
+          .where('expiresAt', isGreaterThan: nowTs)
+          .limit(1)
+          .get();
+
+      if (!mounted) return;
+      if (query.docs.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Invalid or expired code'),
+            backgroundColor: Colors.red,
+          ),
+        );
         return;
       }
-
-      if (!mounted) return;
-      await showPasswordResetLinkSentNotification(context);
-      if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.login, (_) => false);
+      Navigator.pushNamed(context, AppRoutes.changePassword);
     } catch (e) {
       if (!mounted) return;
-      showFirebaseErrorSnackBar(context, firebaseErrorMessage(e));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString()),
+          backgroundColor: Colors.red,
+        ),
+      );
     } finally {
       if (mounted) setState(() => _verifying = false);
-    }
-  }
-
-  Future<void> _resend() async {
-    if (!_canResend || _resending) return;
-
-    setState(() => _resending = true);
-    try {
-      final generatedOtp = await _emailOtpService.prepareOtp(_email);
-
-      await EmailJsSendService.sendOtpEmail(
-        toEmail: _email.trim(),
-        otpCode: generatedOtp.toString(),
-      );
-
-      if (!mounted) return;
-      await showCodeSentToEmailNotification(context);
-      _syncCountdown();
-    } catch (e) {
-      if (!mounted) return;
-      showFirebaseErrorSnackBar(context, firebaseErrorMessage(e));
-    } finally {
-      if (mounted) setState(() => _resending = false);
     }
   }
 
@@ -201,17 +160,6 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
                 }),
               ),
               const SizedBox(height: 12),
-              if (_remaining > Duration.zero)
-                Text(
-                  'Code expires in ${_formatCountdown(_remaining)}',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w500),
-                ),
-              const SizedBox(height: 4),
-              TextButton(
-                onPressed: _canResend ? _resend : null,
-                child: Text(_resending ? 'Sending...' : 'Resend code'),
-              ),
               const SizedBox(height: 28),
               GradientPrimaryButton(
                 label: _verifying ? 'Verifying...' : 'Verify',

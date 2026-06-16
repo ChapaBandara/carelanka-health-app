@@ -2,6 +2,7 @@ import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/design/carelanka_gradients.dart';
 import 'package:flutter/material.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 /// CareLanka UI #48 — QR scan with account-found bottom sheet.
 class QrScannerScreen extends StatefulWidget {
@@ -13,12 +14,47 @@ class QrScannerScreen extends StatefulWidget {
 
 class _QrScannerScreenState extends State<QrScannerScreen> {
   bool _found = false;
+  bool _handledScan = false;
   bool _shareRecords = true;
   bool _shareMeds = true;
   bool _shareAppts = false;
   bool _shareReports = false;
 
   void _showFoundSheet() => setState(() => _found = true);
+
+  void _handleScanValue(String value) {
+    if (_handledScan) return;
+    if (!value.startsWith('carelanka://link?userId=')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invalid QR format'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    final uri = Uri.tryParse(value);
+    final scannedUserId = uri?.queryParameters['userId']?.trim() ?? '';
+    final scannedName = uri?.queryParameters['name']?.trim() ?? '';
+    if (scannedUserId.isEmpty || scannedName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invalid QR format'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    _handledScan = true;
+    Navigator.pushReplacementNamed(
+      context,
+      AppRoutes.linkConfirmation,
+      arguments: <String, dynamic>{
+        'scannedUserId': scannedUserId,
+        'scannedName': Uri.decodeComponent(scannedName),
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +63,14 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Container(color: const Color(0xFF1B2B1F)),
+          MobileScanner(
+            onDetect: (capture) {
+              final code = capture.barcodes.isNotEmpty ? capture.barcodes.first.rawValue : null;
+              if (code != null && mounted) {
+                _handleScanValue(code);
+              }
+            },
+          ),
           SafeArea(
             child: Column(
               children: [

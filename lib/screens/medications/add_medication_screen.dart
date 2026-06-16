@@ -7,6 +7,7 @@ import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:carelanka_app/widgets/carelanka/labeled_text_field.dart';
 import 'package:carelanka_app/widgets/carelanka/profile_dropdown_field.dart';
 import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
@@ -441,6 +442,21 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
           lowStockThreshold: _stockReminderOn ? lowStock : 0,
           hasConflictWarning: _conflictMessage != null || _allergyMessage != null,
         );
+        if (_conflictMessage != null || _allergyMessage != null) {
+          try {
+            final message = [
+              if (_conflictMessage != null) _conflictMessage!,
+              if (_allergyMessage != null) _allergyMessage!,
+            ].join('\n');
+            await FirebaseFirestore.instance.collection('alerts').add({
+              'userId': userId,
+              'type': 'drug',
+              'message': message,
+              'read': false,
+              'createdAt': Timestamp.fromDate(DateTime.now()),
+            });
+          } catch (_) {}
+        }
       } else {
         final medicationId = await medService.addMedication(
           userId: userId,
@@ -456,6 +472,21 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
           lowStockThreshold: _stockReminderOn ? lowStock : 0,
           hasConflictWarning: _conflictMessage != null || _allergyMessage != null,
         );
+        if (_conflictMessage != null || _allergyMessage != null) {
+          try {
+            final message = [
+              if (_conflictMessage != null) _conflictMessage!,
+              if (_allergyMessage != null) _allergyMessage!,
+            ].join('\n');
+            await FirebaseFirestore.instance.collection('alerts').add({
+              'userId': userId,
+              'type': 'drug',
+              'message': message,
+              'read': false,
+              'createdAt': Timestamp.fromDate(DateTime.now()),
+            });
+          } catch (_) {}
+        }
         try {
           await NotificationService.instance.scheduleMedicationReminders(
             medicationId: medicationId,

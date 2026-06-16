@@ -1,6 +1,9 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 /// CareLanka UI #32 — Snoozed medication countdown screen.
 class SnoozedMedicationScreen extends StatefulWidget {
@@ -13,6 +16,7 @@ class SnoozedMedicationScreen extends StatefulWidget {
 class _SnoozedMedicationScreenState extends State<SnoozedMedicationScreen> {
   Timer? _timer;
   Duration _remaining = const Duration(minutes: 15);
+  String _remindAt = '';
 
   @override
   void initState() {
@@ -27,6 +31,7 @@ class _SnoozedMedicationScreenState extends State<SnoozedMedicationScreen> {
     if (snoozeUntil != null) {
       _remaining = snoozeUntil.difference(DateTime.now());
       if (_remaining.isNegative) _remaining = Duration.zero;
+      _remindAt = DateFormat.jm().format(snoozeUntil);
     }
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
@@ -52,11 +57,23 @@ class _SnoozedMedicationScreenState extends State<SnoozedMedicationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final args = ModalRoute.of(context)?.settings.arguments;
-    final map = args is Map ? Map<String, dynamic>.from(args) : <String, dynamic>{};
-    final remindAt = map['remindAt'] as String? ?? '';
+    final userId = FirebaseAuth.instance.currentUser!.uid;
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('reminder_logs')
+          .where('userId', isEqualTo: userId)
+          .where('status', isEqualTo: 'snoozed')
+          .orderBy('scheduledTime', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final docs = snapshot.data?.docs ?? [];
+        final first = docs.isNotEmpty ? docs.first.data() : <String, dynamic>{};
+        final scheduledAt = (first['scheduledTime'] as Timestamp?)?.toDate();
+        final remindAt = _remindAt.isNotEmpty
+            ? _remindAt
+            : (scheduledAt != null ? DateFormat.jm().format(scheduledAt) : '');
 
-    return Scaffold(
+        return Scaffold(
       body: Container(
         width: double.infinity,
         decoration: const BoxDecoration(
@@ -122,6 +139,8 @@ class _SnoozedMedicationScreenState extends State<SnoozedMedicationScreen> {
           ),
         ),
       ),
+    );
+      },
     );
   }
 }

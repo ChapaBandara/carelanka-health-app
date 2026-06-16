@@ -1,6 +1,9 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 /// CareLanka UI #30 — Dose Confirmed success screen.
 class ConfirmedMedicationScreen extends StatelessWidget {
@@ -8,17 +11,26 @@ class ConfirmedMedicationScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final args = ModalRoute.of(context)?.settings.arguments;
-    final map = args is Map ? Map<String, dynamic>.from(args) : <String, dynamic>{};
-    final name = map['name'] as String? ?? 'Medication';
-    final takenAt = map['takenAt'] as String? ?? '';
-    final latency = map['latency'] as int? ?? 0;
+    final userId = FirebaseAuth.instance.currentUser!.uid;
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('reminder_logs')
+          .where('userId', isEqualTo: userId)
+          .where('status', isEqualTo: 'confirmed')
+          .orderBy('scheduledTime', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final docs = snapshot.data?.docs ?? [];
+        final first = docs.isNotEmpty ? docs.first.data() : <String, dynamic>{};
+        final name = first['medicationName']?.toString() ?? 'Medication';
+        final scheduled = (first['scheduledTime'] as Timestamp?)?.toDate();
+        final takenAt = scheduled != null ? DateFormat.jm().format(scheduled) : '';
+        final latency = (first['responseLatencyMinutes'] as int?) ?? 0;
+        final timingText = latency > 0
+            ? 'Taken $latency minute${latency == 1 ? '' : 's'} after reminder'
+            : 'Taken on time';
 
-    final timingText = latency > 0
-        ? 'Taken $latency minute${latency == 1 ? '' : 's'} after reminder'
-        : 'Taken on time';
-
-    return Scaffold(
+        return Scaffold(
       body: Container(
         width: double.infinity,
         decoration: const BoxDecoration(
@@ -67,28 +79,15 @@ class ConfirmedMedicationScreen extends StatelessWidget {
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: const Row(
-                    children: [
-                      Text('🔥', style: TextStyle(fontSize: 28)),
-                      SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '12 dose streak!',
-                              style: TextStyle(
-                                color: AppColors.primaryTeal,
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            SizedBox(height: 2),
-                            Text('Keep it going!', style: TextStyle(color: AppColors.textGrey, fontSize: 14)),
-                          ],
-                        ),
-                      ),
-                    ],
+                  child: Text(
+                    docs.isEmpty
+                        ? 'No confirmed medications yet.'
+                        : '${docs.length} confirmed medication${docs.length == 1 ? '' : 's'}',
+                    style: const TextStyle(
+                      color: AppColors.primaryTeal,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
                 const Spacer(flex: 3),
@@ -115,6 +114,8 @@ class ConfirmedMedicationScreen extends StatelessWidget {
           ),
         ),
       ),
+    );
+      },
     );
   }
 }
