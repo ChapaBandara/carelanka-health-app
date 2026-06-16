@@ -59,13 +59,25 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
-  Future<void> _downloadReport(double adherencePercent) async {
+  Future<void> _downloadReport(double adherencePercent, DoseStats stats) async {
     final userName = context.read<AuthProvider>().profile?.fullName ?? 'Patient';
     try {
+      final reportData = ReportData(
+        adherenceScore: adherencePercent,
+        confirmed: stats.taken,
+        missed: stats.missed,
+        skipped: 0,
+        pending: stats.pending,
+        total: stats.total,
+        insightText: _adherenceService.generateInsightText(adherencePercent),
+        breakdown: const [],
+        periodLabel: _periodLabel(),
+      );
       await _reportService.generateAndSharePdf(
         userName: userName,
         adherencePercent: adherencePercent,
         periodLabel: _periodLabel(),
+        reportData: reportData,
       );
       if (!mounted) return;
       showFirebaseSuccessSnackBar(context, 'Report generated');
@@ -191,6 +203,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
         hint = 'Tap arrows to browse years';
     }
 
+    // Disable forward arrow when next period would be in the future.
+    final now = DateTime.now();
+    final bool atFuture = switch (_tab) {
+      0 => !_anchor.isBefore(DateTime(now.year, now.month, now.day)),
+      1 => _anchor.add(const Duration(days: 7)).isAfter(now),
+      2 => _anchor.year == now.year && _anchor.month >= now.month,
+      _ => _anchor.year >= now.year,
+    };
+
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Row(
@@ -205,7 +226,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               ],
             ),
           ),
-          _navCircle(Icons.chevron_right, () => _shift(1)),
+          _navCircle(Icons.chevron_right, atFuture ? null : () => _shift(1)),
         ],
       ),
     );
@@ -226,14 +247,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
     });
   }
 
-  Widget _navCircle(IconData icon, VoidCallback onTap) {
+  Widget _navCircle(IconData icon, VoidCallback? onTap) {
     return Material(
-      color: const Color(0xFFEEEEEE),
+      color: onTap == null ? const Color(0xFFE0E0E0) : const Color(0xFFEEEEEE),
       shape: const CircleBorder(),
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: onTap,
-        child: Padding(padding: const EdgeInsets.all(10), child: Icon(icon, size: 22)),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Icon(icon, size: 22,
+              color: onTap == null ? AppColors.textGrey.withValues(alpha: 0.4) : null),
+        ),
       ),
     );
   }
@@ -598,7 +623,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           const SizedBox(height: 12),
           GradientPrimaryButton(
             label: 'Download Full Report',
-            onPressed: () => _downloadReport(adherencePercent),
+            onPressed: () => _downloadReport(adherencePercent, stats),
           ),
         ],
       ),
