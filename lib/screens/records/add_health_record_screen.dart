@@ -29,13 +29,22 @@ class _AddHealthRecordScreenState extends State<AddHealthRecordScreen> {
   String _type = 'Lab Report';
   bool _saving = false;
 
-  static const _validTypes = ['Prescription', 'Lab Report', 'Scan Report', 'X-Ray'];
+  static const _validTypes = [
+    'Prescription',
+    'Lab Report',
+    'Scan Report',
+    'X-Ray',
+    'Summary Report (Annual Checkup Report)',
+  ];
 
   /// Normalise any stored document type to one of the four valid dropdown items.
   String _normaliseType(String? raw) {
     if (raw == null || raw.isEmpty) return 'Lab Report';
     final lower = raw.toLowerCase();
     if (lower.contains('prescription')) return 'Prescription';
+    if (lower.contains('summary') || lower.contains('annual') || lower.contains('checkup')) {
+      return 'Summary Report (Annual Checkup Report)';
+    }
     if (lower.contains('lab') || lower.contains('report') || lower.contains('test')) return 'Lab Report';
     if (lower.contains('scan') || lower.contains('mri') || lower.contains('ct')) return 'Scan Report';
     if (lower.contains('x-ray') || lower.contains('xray') || lower.contains('x ray')) return 'X-Ray';
@@ -295,6 +304,10 @@ class _AddHealthRecordScreenState extends State<AddHealthRecordScreen> {
                     DropdownMenuItem(value: 'Lab Report', child: Text('Lab Report')),
                     DropdownMenuItem(value: 'Scan Report', child: Text('Scan Report')),
                     DropdownMenuItem(value: 'X-Ray', child: Text('X-Ray')),
+                    DropdownMenuItem(
+                      value: 'Summary Report (Annual Checkup Report)',
+                      child: Text('Summary Report (Annual Checkup Report)'),
+                    ),
                   ],
                   onChanged: (v) => setState(() => _type = v ?? _type),
                 ),

@@ -1,7 +1,6 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/design/carelanka_gradients.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/services/health_record_service.dart';
 import 'package:carelanka_app/widgets/carelanka/carelanka_bottom_nav.dart';
@@ -19,7 +18,7 @@ class DocumentsLibraryScreen extends StatefulWidget {
 
 class _DocumentsLibraryScreenState extends State<DocumentsLibraryScreen> {
   int _chip = 0;
-  final _chips = ['All', 'Prescriptions', 'Lab Reports', 'Scans'];
+  final _chips = ['All', 'Prescriptions', 'Lab Reports', 'Scans', 'Summary Reports'];
   final _search = TextEditingController();
 
   @override
@@ -37,6 +36,9 @@ class _DocumentsLibraryScreenState extends State<DocumentsLibraryScreen> {
       if (chip.contains('prescription')) return type.contains('prescription');
       if (chip.contains('lab')) return type.contains('lab');
       if (chip.contains('scan')) return type.contains('scan') || type.contains('x-ray');
+      if (chip.contains('summary')) {
+        return type.contains('summary') || type.contains('annual') || type.contains('checkup');
+      }
       return true;
     }).toList();
   }
@@ -46,28 +48,7 @@ class _DocumentsLibraryScreenState extends State<DocumentsLibraryScreen> {
     final userId = FirebaseAuth.instance.currentUser!.uid;
 
     return StreamBuilder<List<Map<String, String>>>(
-      stream: FirebaseFirestore.instance
-          .collection('health_records')
-          .where('userId', isEqualTo: userId)
-          .orderBy('visitDate', descending: true)
-          .snapshots()
-          .map((snapshot) => snapshot.docs
-              .where((doc) => (doc.data()['documentUrl'] as String? ?? '').trim().isNotEmpty)
-              .map((doc) {
-                final data = doc.data();
-                final visitDate = (data['visitDate'] as Timestamp?)?.toDate();
-                return <String, String>{
-                  'recordId': doc.id,
-                  'doctor': data['doctorName']?.toString() ?? '',
-                  'hospital': data['hospital']?.toString() ?? '',
-                  'diagnosis': data['diagnosis']?.toString() ?? '',
-                  'documentUrl': data['documentUrl']?.toString() ?? '',
-                  'documentType': data['documentType']?.toString() ?? '',
-                  'title': data['diagnosis']?.toString() ?? data['doctorName']?.toString() ?? 'Document',
-                  'date': visitDate != null ? '${visitDate.day}/${visitDate.month}/${visitDate.year}' : '',
-                  'monthDay': visitDate != null ? '${visitDate.day}/${visitDate.month}' : '',
-                };
-              }).toList()),
+      stream: HealthRecordService().watchRecordMaps(userId),
       builder: (context, snapshot) {
         final records = _filter(snapshot.data ?? []);
 
@@ -315,6 +296,9 @@ class _DocumentsLibraryScreenState extends State<DocumentsLibraryScreen> {
 
   ({IconData icon, Color bg, Color color}) _styleFor(String type) {
     final t = type.toLowerCase();
+    if (t.contains('summary') || t.contains('annual') || t.contains('checkup')) {
+      return (icon: Icons.summarize_outlined, bg: const Color(0xFFE8EAF6), color: const Color(0xFF3949AB));
+    }
     if (t.contains('lab')) return (icon: Icons.science_outlined, bg: const Color(0xFFE3F2FD), color: const Color(0xFF1565C0));
     if (t.contains('scan') || t.contains('x-ray')) {
       return (icon: Icons.crop_free, bg: const Color(0xFFF3E5F5), color: const Color(0xFF7B1FA2));

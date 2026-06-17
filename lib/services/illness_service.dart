@@ -127,8 +127,11 @@ class IllnessService {
 
     final diagnosed = d['diagnosedDate'];
     String since = 'Recently added';
+    int? diagnosedMillis;
     if (diagnosed is Timestamp) {
-      since = 'Since ${DateFormat('d MMM yyyy').format(diagnosed.toDate())}';
+      final diagnosedDate = diagnosed.toDate();
+      diagnosedMillis = diagnosedDate.millisecondsSinceEpoch;
+      since = 'Since ${DateFormat('d MMM yyyy').format(diagnosedDate)}';
     }
 
     final status = d['status'] as String? ?? 'active';
@@ -140,6 +143,7 @@ class IllnessService {
       'initials': initials,
       'status': status,
       'notes': d['notes'] as String? ?? '',
+      if (diagnosedMillis != null) 'diagnosedDateMillis': '$diagnosedMillis',
     };
   }
 

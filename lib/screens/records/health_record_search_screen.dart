@@ -16,7 +16,7 @@ class HealthRecordSearchScreen extends StatefulWidget {
 class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
   final _search = TextEditingController();
   int _chip = 0;
-  final _chips = ['All', 'Prescriptions', 'Lab Reports', 'Doctors'];
+  final _chips = ['All', 'Prescriptions', 'Lab Reports', 'Doctors', 'Summary Reports'];
   late final Future<List<Map<String, String>>> _recordsFuture;
 
   @override
@@ -35,7 +35,7 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
   Future<List<Map<String, String>>> _fetchRecords() async {
     final userId = FirebaseAuth.instance.currentUser!.uid;
     final snapshot = await FirebaseFirestore.instance.collection('health_records').where('userId', isEqualTo: userId).get();
-    return snapshot.docs.map((doc) {
+    final records = snapshot.docs.map((doc) {
       final data = doc.data();
       final visitDate = (data['visitDate'] as Timestamp?)?.toDate();
       return <String, String>{
@@ -45,10 +45,19 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
         'diagnosis': data['diagnosis']?.toString() ?? '',
         'notes': data['notes']?.toString() ?? '',
         'documentType': data['documentType']?.toString() ?? '',
+        'documentUrl': data['documentUrl']?.toString() ?? '',
         'title': data['diagnosis']?.toString() ?? data['doctorName']?.toString() ?? 'Record',
         'date': visitDate != null ? '${visitDate.day}/${visitDate.month}/${visitDate.year}' : '',
+        'monthDay': visitDate != null ? '${visitDate.day}/${visitDate.month}' : '',
+        if (visitDate != null) 'visitDateMillis': '${visitDate.millisecondsSinceEpoch}',
       };
     }).toList();
+    records.sort((a, b) {
+      final aMs = int.tryParse(a['visitDateMillis'] ?? '0') ?? 0;
+      final bMs = int.tryParse(b['visitDateMillis'] ?? '0') ?? 0;
+      return bMs.compareTo(aMs);
+    });
+    return records;
   }
 
   List<Map<String, String>> _filter(List<Map<String, String>> records) {
@@ -75,6 +84,9 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
       if (chip.contains('prescription')) return type.contains('prescription');
       if (chip.contains('lab')) return type.contains('lab');
       if (chip.contains('doctor')) return (r['doctor'] ?? '').isNotEmpty;
+      if (chip.contains('summary')) {
+        return type.contains('summary') || type.contains('annual') || type.contains('checkup');
+      }
       return true;
     }).toList();
   }
@@ -82,11 +94,26 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
   @override
   Widget build(BuildContext context) {
     final query = _search.text.trim();
+    final isFiltering = query.isNotEmpty;
 
     return FutureBuilder<List<Map<String, String>>>(
       future: _recordsFuture,
       builder: (context, snapshot) {
-        final results = query.isEmpty ? <Map<String, String>>[] : _filter(snapshot.data ?? []);
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Scaffold(
+            backgroundColor: AppColors.background,
+            appBar: AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new, size: 20),
+                onPressed: () => Navigator.maybePop(context),
+              ),
+              title: const Text('Search records'),
+            ),
+            body: const Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final results = _filter(snapshot.data ?? []);
 
         return Scaffold(
           backgroundColor: AppColors.background,
@@ -141,32 +168,28 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              if (query.isEmpty)
-                const EmptyListPlaceholder(
-                  icon: Icons.search,
-                  title: 'Search your records',
-                  subtitle: 'Find prescriptions, lab reports, and doctor visits.',
-                )
-              else ...[
-                Text(
-                  '${results.length} RESULT${results.length == 1 ? '' : 'S'} FOUND',
-                  style: const TextStyle(
-                    color: AppColors.navy,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12,
-                    letterSpacing: 0.5,
-                  ),
+              Text(
+                isFiltering
+                    ? '${results.length} RESULT${results.length == 1 ? '' : 'S'} FOUND'
+                    : '${results.length} RECORD${results.length == 1 ? '' : 'S'}',
+                style: const TextStyle(
+                  color: AppColors.navy,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                  letterSpacing: 0.5,
                 ),
-                const SizedBox(height: 12),
-                if (results.isEmpty)
-                  const EmptyListPlaceholder(
-                    icon: Icons.search_off,
-                    title: 'No results',
-                    subtitle: 'Try a different search term or filter.',
-                  )
-                else
-                  for (final r in results) _resultCard(context, r, query),
-              ],
+              ),
+              const SizedBox(height: 12),
+              if (results.isEmpty)
+                EmptyListPlaceholder(
+                  icon: isFiltering ? Icons.search_off : Icons.folder_open_outlined,
+                  title: isFiltering ? 'No results' : 'No health records yet',
+                  subtitle: isFiltering
+                      ? 'Try a different search term or filter.'
+                      : 'Add a health record to start building your library.',
+                )
+              else
+                for (final r in results) _resultCard(context, r, query),
             ],
           ),
         );
@@ -176,6 +199,7 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
 
   Widget _resultCard(BuildContext context, Map<String, String> record, String query) {
     final title = record['title'] ?? record['diagnosis'] ?? record['doctor'] ?? 'Record';
+    final doctor = record['doctor'] ?? '';
     final type = record['documentType'] ?? record['tag'] ?? 'Record';
     final style = _docStyle(type);
 
@@ -206,6 +230,10 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _highlightedText(title, query),
+                      if (doctor.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        _highlightedText(doctor, query, fontSize: 13, color: AppColors.textGrey),
+                      ],
                       const SizedBox(height: 6),
                       Row(
                         children: [
@@ -213,7 +241,7 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
                           const SizedBox(width: 4),
                           Text(record['date'] ?? '', style: const TextStyle(color: AppColors.textGrey, fontSize: 12)),
                           const Text(' • ', style: TextStyle(color: AppColors.textGrey)),
-                          Text(type, style: const TextStyle(color: AppColors.textGrey, fontSize: 12)),
+                          Flexible(child: _highlightedText(type, query, fontSize: 12, color: AppColors.textGrey)),
                         ],
                       ),
                     ],
@@ -231,6 +259,9 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
   /// Identical to the _docStyle in health_records_screen.dart — kept in sync.
   _DocStyle _docStyle(String type) {
     final t = type.toLowerCase();
+    if (t.contains('summary') || t.contains('annual') || t.contains('checkup')) {
+      return const _DocStyle(Icons.summarize_outlined, Color(0xFFE8EAF6), Color(0xFF3949AB));
+    }
     if (t.contains('lab') || t.contains('test') || t.contains('blood')) {
       return const _DocStyle(Icons.science_outlined, Color(0xFFE3F2FD), Color(0xFF1565C0));
     }
@@ -243,19 +274,25 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
     return const _DocStyle(Icons.description_outlined, Color(0xFFE8F5E9), Color(0xFF388E3C));
   }
 
-  Widget _highlightedText(String text, String query) {
+  Widget _highlightedText(
+    String text,
+    String query, {
+    double fontSize = 15,
+    Color color = AppColors.textDark,
+    FontWeight fontWeight = FontWeight.w700,
+  }) {
     if (query.isEmpty) {
-      return Text(text, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15));
+      return Text(text, style: TextStyle(fontWeight: fontWeight, fontSize: fontSize, color: color));
     }
     final lower = text.toLowerCase();
     final q = query.toLowerCase();
     final index = lower.indexOf(q);
     if (index < 0) {
-      return Text(text, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15));
+      return Text(text, style: TextStyle(fontWeight: fontWeight, fontSize: fontSize, color: color));
     }
     return RichText(
       text: TextSpan(
-        style: const TextStyle(color: AppColors.textDark, fontSize: 15, fontWeight: FontWeight.w700),
+        style: TextStyle(color: color, fontSize: fontSize, fontWeight: fontWeight),
         children: [
           TextSpan(text: text.substring(0, index)),
           TextSpan(

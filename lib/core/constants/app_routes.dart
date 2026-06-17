@@ -10,6 +10,7 @@ class AppRoutes {
   static const addIllness = '/add-illness';
   static const illnessDetail = '/illness-detail';
   static const medicationList = '/medications';
+  static const medicationSearch = '/medication-search';
   static const addMedication = '/add-medication';
   static const reminderHistory = '/reminder-history';
   static const takingMedication = '/taking-medication';

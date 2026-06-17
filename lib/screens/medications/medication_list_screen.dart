@@ -25,9 +25,6 @@ class _MedicationListScreenState extends State<MedicationListScreen>
   late final Stream<List<Map<String, String>>> _illnessStream;
   late final String _userId;
 
-  bool _searchOpen = false;
-  final _searchCtrl = TextEditingController();
-
   @override
   void initState() {
     super.initState();
@@ -39,14 +36,17 @@ class _MedicationListScreenState extends State<MedicationListScreen>
   @override
   void dispose() {
     _tab.dispose();
-    _searchCtrl.dispose();
     super.dispose();
   }
 
-  List<Map<String, String>> _applySearch(List<Map<String, String>> illnesses) {
-    final q = _searchCtrl.text.trim().toLowerCase();
-    if (q.isEmpty) return illnesses;
-    return illnesses.where((i) => (i['name'] ?? '').toLowerCase().contains(q)).toList();
+  void _openSearch() {
+    Navigator.pushNamed(
+      context,
+      AppRoutes.medicationSearch,
+      arguments: <String, String>{
+        'tab': _tab.index == 0 ? 'active' : 'completed',
+      },
+    );
   }
 
   @override
@@ -56,36 +56,17 @@ class _MedicationListScreenState extends State<MedicationListScreen>
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        leading: _searchOpen
-            ? IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => setState(() {
-                  _searchOpen = false;
-                  _searchCtrl.clear();
-                }),
-              )
-            : IconButton(
-                icon: const Icon(Icons.arrow_back_ios_new, size: 20),
-                onPressed: () => Navigator.maybePop(context),
-              ),
-        title: _searchOpen
-            ? TextField(
-                controller: _searchCtrl,
-                autofocus: true,
-                onChanged: (_) => setState(() {}),
-                decoration: const InputDecoration(
-                  hintText: 'Search illnesses...',
-                  border: InputBorder.none,
-                ),
-              )
-            : const Text('My Medications'),
-        centerTitle: !_searchOpen,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, size: 20),
+          onPressed: () => Navigator.maybePop(context),
+        ),
+        title: const Text('My Medications'),
+        centerTitle: true,
         actions: [
-          if (!_searchOpen)
-            IconButton(
-              icon: const Icon(Icons.search),
-              onPressed: () => setState(() => _searchOpen = true),
-            ),
+          IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: _openSearch,
+          ),
         ],
         bottom: TabBar(
           controller: _tab,
@@ -129,7 +110,7 @@ class _MedicationListScreenState extends State<MedicationListScreen>
             return const Center(child: CircularProgressIndicator());
           }
 
-          final illnesses = _applySearch(snapshot.data ?? []);
+          final illnesses = snapshot.data ?? [];
 
           return TabBarView(
             controller: _tab,

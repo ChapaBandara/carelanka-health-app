@@ -19,7 +19,7 @@ class HealthRecordsScreen extends StatefulWidget {
 
 class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
   int _chip = 0;
-  final _chips = ['All', 'Prescriptions', 'Lab Reports', 'Scans'];
+  final _chips = ['All', 'Prescriptions', 'Lab Reports', 'Scans', 'Summary Reports'];
 
   void _openFilter() {
     var attachOnly = true;
@@ -139,6 +139,9 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
       if (chip.contains('prescription')) return type.contains('prescription');
       if (chip.contains('lab')) return type.contains('lab');
       if (chip.contains('scan')) return type.contains('scan') || type.contains('x-ray');
+      if (chip.contains('summary')) {
+        return type.contains('summary') || type.contains('annual') || type.contains('checkup');
+      }
       return true;
     }).toList();
   }
@@ -374,6 +377,9 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
 
   _DocStyle _docStyle(String type) {
     final t = type.toLowerCase();
+    if (t.contains('summary') || t.contains('annual') || t.contains('checkup')) {
+      return const _DocStyle(Icons.summarize_outlined, Color(0xFFE8EAF6), Color(0xFF3949AB));
+    }
     if (t.contains('lab') || t.contains('test') || t.contains('blood')) {
       return const _DocStyle(Icons.science_outlined, Color(0xFFE3F2FD), Color(0xFF1565C0));
     }
@@ -383,7 +389,6 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
     if (t.contains('prescription') || t.contains('rx')) {
       return const _DocStyle(Icons.medication_outlined, Color(0xFFE0F7F7), AppColors.primaryTeal);
     }
-    // Everything else (Visit summary, Report, etc.) → document icon
     return const _DocStyle(Icons.description_outlined, Color(0xFFE8F5E9), Color(0xFF388E3C));
   }
 }

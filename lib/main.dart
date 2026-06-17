@@ -25,6 +25,7 @@ import 'package:carelanka_app/screens/illnesses/add_illness_screen.dart';
 import 'package:carelanka_app/screens/illnesses/illness_detail_screen.dart';
 import 'package:carelanka_app/screens/illnesses/illness_list_screen.dart';
 import 'package:carelanka_app/screens/main_shell.dart';
+import 'package:carelanka_app/screens/medications/medication_search_screen.dart';
 import 'package:carelanka_app/screens/medications/medication_list_screen.dart';
 import 'package:carelanka_app/screens/medications/add_medication_screen.dart';
 import 'package:carelanka_app/screens/medications/confirmed_medication_screen.dart';
@@ -86,6 +87,7 @@ class CareLankaApp extends StatelessWidget {
           AppRoutes.verifyResetCode: (_) => const VerifyResetCodeScreen(),
           AppRoutes.dashboard: (_) => const MainShell(initialIndex: 0),
           AppRoutes.medicationList: (_) => const MedicationListScreen(),
+          AppRoutes.medicationSearch: (_) => const MedicationSearchScreen(),
           AppRoutes.healthRecords: (_) => const HealthRecordsScreen(),
           AppRoutes.family: (_) => const MainShell(initialIndex: 1),
           AppRoutes.profile: (_) => const MainShell(initialIndex: 2),
