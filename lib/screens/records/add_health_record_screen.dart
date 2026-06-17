@@ -297,16 +297,20 @@ class _AddHealthRecordScreenState extends State<AddHealthRecordScreen> {
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
                   key: ValueKey(_type),
+                  isExpanded: true,
                   initialValue: _type,
                   decoration: _fieldDecoration(),
                   items: const [
-                    DropdownMenuItem(value: 'Prescription', child: Text('Prescription')),
-                    DropdownMenuItem(value: 'Lab Report', child: Text('Lab Report')),
-                    DropdownMenuItem(value: 'Scan Report', child: Text('Scan Report')),
-                    DropdownMenuItem(value: 'X-Ray', child: Text('X-Ray')),
+                    DropdownMenuItem(value: 'Prescription', child: Text('Prescription', overflow: TextOverflow.ellipsis)),
+                    DropdownMenuItem(value: 'Lab Report', child: Text('Lab Report', overflow: TextOverflow.ellipsis)),
+                    DropdownMenuItem(value: 'Scan Report', child: Text('Scan Report', overflow: TextOverflow.ellipsis)),
+                    DropdownMenuItem(value: 'X-Ray', child: Text('X-Ray', overflow: TextOverflow.ellipsis)),
                     DropdownMenuItem(
                       value: 'Summary Report (Annual Checkup Report)',
-                      child: Text('Summary Report (Annual Checkup Report)'),
+                      child: Text(
+                        'Summary Report (Annual Checkup Report)',
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ],
                   onChanged: (v) => setState(() => _type = v ?? _type),
