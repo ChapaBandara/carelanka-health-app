@@ -27,6 +27,9 @@ class FamilyService {
 
     final hasOwn = d['hasOwnAccount'] == true;
     final relationship = d['relationship'] as String? ?? '';
+    final gender = d['gender'] as String? ?? '';
+    final bloodType = d['bloodType'] as String? ?? '';
+    final linkedUserId = d['linkedUserId'] as String? ?? '';
 
     return {
       'profileId': doc.id,
@@ -34,8 +37,9 @@ class FamilyService {
       'meta': relationship.isNotEmpty ? relationship : (hasOwn ? 'Linked account' : 'Dependent profile'),
       'initials': initials,
       'type': hasOwn ? 'linked' : 'dependent',
-      'tag1': '',
-      'tag2': '',
+      'tag1': gender.isNotEmpty ? gender : '',
+      'tag2': bloodType.isNotEmpty ? bloodType : '',
+      'linkedUserId': linkedUserId,
     };
   }
 
@@ -62,5 +66,9 @@ class FamilyService {
       'allergies': allergies,
       'createdAt': Timestamp.fromDate(DateTime.now()),
     });
+  }
+
+  Future<void> deleteFamilyMember(String profileId) async {
+    await _col.doc(profileId).delete();
   }
 }

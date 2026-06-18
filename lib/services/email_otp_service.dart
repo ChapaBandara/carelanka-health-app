@@ -1,22 +1,17 @@
 import 'dart:math';
 
-import 'package:carelanka_app/core/firebase/firebase_collections.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 /// In-memory email OTP for forgot-password (sent via EmailJS).
 class EmailOtpService {
   EmailOtpService({
-    FirebaseFirestore? firestore,
     FirebaseAuth? auth,
-  })  : _firestore = firestore ?? FirebaseFirestore.instance,
-        _auth = auth ?? FirebaseAuth.instance;
+  }) : _auth = auth ?? FirebaseAuth.instance;
 
   static const otpExpiry = Duration(minutes: 10);
 
   static final EmailOtpService instance = EmailOtpService();
 
-  final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
 
   _EmailOtpSession? _session;
@@ -31,22 +26,12 @@ class EmailOtpService {
 
   String _generateOtp() => (Random().nextInt(900000) + 100000).toString();
 
-  Future<void> _ensureEmailAccount(String email) async {
-    final trimmed = email.trim();
-    final snap = await _firestore
-        .collection(FirebaseCollections.users)
-        .where('email', isEqualTo: trimmed)
-        .limit(1)
-        .get();
-    if (snap.docs.isEmpty) {
-      throw Exception('No CareLanka account found with this email.');
-    }
-  }
-
   /// Generates OTP, stores in memory, returns code for EmailJS send.
   Future<String> prepareOtp(String email) async {
     final trimmed = email.trim();
-    await _ensureEmailAccount(trimmed);
+    if (trimmed.isEmpty) {
+      throw Exception('Please enter your email address.');
+    }
 
     final otp = _generateOtp();
     _session = _EmailOtpSession(
@@ -59,8 +44,8 @@ class EmailOtpService {
     return otp;
   }
 
-  /// Verifies the in-memory OTP, then sends a Firebase password reset email.
-  Future<void> verifyOtp({required String email, required String code}) async {
+  /// Verifies the in-memory OTP without sending email.
+  Future<void> verifyOtpCode({required String email, required String code}) async {
     final trimmed = email.trim();
     final session = _session;
 
@@ -77,7 +62,12 @@ class EmailOtpService {
     }
 
     session.verified = true;
-    await completePasswordReset(email: trimmed);
+  }
+
+  /// Verifies the in-memory OTP, then sends a Firebase password reset email.
+  Future<void> verifyOtp({required String email, required String code}) async {
+    await verifyOtpCode(email: email, code: code);
+    await completePasswordReset(email: email);
   }
 
   Future<void> completePasswordReset({required String email}) async {

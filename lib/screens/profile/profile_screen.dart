@@ -7,6 +7,7 @@ import 'package:carelanka_app/providers/user_data_provider.dart';
 import 'package:carelanka_app/services/family_service.dart';
 import 'package:carelanka_app/services/health_record_service.dart';
 import 'package:carelanka_app/services/medication_service.dart';
+import 'package:carelanka_app/widgets/carelanka/profile_avatar.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -133,13 +134,10 @@ class ProfileScreen extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(3),
                     decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
-                    child: CircleAvatar(
+                    child: ProfileAvatar(
                       radius: 44,
-                      backgroundColor: const Color(0x33000000),
-                      backgroundImage: (p?.profileImageUrl?.isNotEmpty ?? false) ? NetworkImage(p!.profileImageUrl!) : null,
-                      child: (p?.profileImageUrl?.isNotEmpty ?? false)
-                          ? null
-                          : Text(p?.initials ?? '?', style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w700)),
+                      imageUrl: p?.profileImageUrl,
+                      initials: p?.initials ?? '?',
                     ),
                   ),
                   const SizedBox(height: 12),

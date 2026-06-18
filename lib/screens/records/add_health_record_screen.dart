@@ -105,6 +105,13 @@ class _AddHealthRecordScreenState extends State<AddHealthRecordScreen> {
     super.dispose();
   }
 
+  void _clearAttachment() {
+    setState(() {
+      _pickedFile = null;
+      _existingDocumentUrl = null;
+    });
+  }
+
   Future<void> _pickDocument() async {
     final picker = ImagePicker();
     final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
@@ -319,27 +326,48 @@ class _AddHealthRecordScreenState extends State<AddHealthRecordScreen> {
                 Row(
                   children: [
                     if (_pickedFile != null || (_existingDocumentUrl?.isNotEmpty ?? false))
-                      Container(
-                        width: 88,
-                        height: 88,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFFDEE2E6)),
-                        ),
-                        child: _pickedFile != null
-                            ? ClipRRect(
-                                borderRadius: BorderRadius.circular(11),
-                                child: Image.file(_pickedFile!, fit: BoxFit.cover),
-                              )
-                            : const Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.insert_drive_file_outlined, color: AppColors.primaryTeal, size: 28),
-                                  SizedBox(height: 4),
-                                  Text('File', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                                ],
+                      Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Container(
+                            width: 88,
+                            height: 88,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: const Color(0xFFDEE2E6)),
+                            ),
+                            child: _pickedFile != null
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(11),
+                                    child: Image.file(_pickedFile!, fit: BoxFit.cover),
+                                  )
+                                : const Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.insert_drive_file_outlined, color: AppColors.primaryTeal, size: 28),
+                                      SizedBox(height: 4),
+                                      Text('File', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                                    ],
+                                  ),
+                          ),
+                          Positioned(
+                            top: -8,
+                            right: -8,
+                            child: Material(
+                              color: AppColors.errorRed,
+                              shape: const CircleBorder(),
+                              child: InkWell(
+                                customBorder: const CircleBorder(),
+                                onTap: _clearAttachment,
+                                child: const Padding(
+                                  padding: EdgeInsets.all(4),
+                                  child: Icon(Icons.close, color: Colors.white, size: 16),
+                                ),
                               ),
+                            ),
+                          ),
+                        ],
                       ),
                     if (_pickedFile != null || (_existingDocumentUrl?.isNotEmpty ?? false))
                       const SizedBox(width: 12),

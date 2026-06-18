@@ -8,6 +8,7 @@ import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 /// CareLanka UI #35 — Health Records with document list.
 class HealthRecordsScreen extends StatefulWidget {
@@ -20,9 +21,32 @@ class HealthRecordsScreen extends StatefulWidget {
 class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
   int _chip = 0;
   final _chips = ['All', 'Prescriptions', 'Lab Reports', 'Scans', 'Summary Reports'];
+  DateTime? _filterFrom;
+  DateTime? _filterTo;
+  String _filterDoctor = '';
+  String _filterDiagnosis = 'all';
+  bool _filterAttachOnly = false;
+  final _filterDoctorCtrl = TextEditingController();
 
-  void _openFilter() {
-    var attachOnly = true;
+  @override
+  void dispose() {
+    _filterDoctorCtrl.dispose();
+    super.dispose();
+  }
+
+  void _openFilter(List<Map<String, String>> allRecords) {
+    var attachOnly = _filterAttachOnly;
+    final doctorCtrl = TextEditingController(text: _filterDoctor);
+    var from = _filterFrom;
+    var to = _filterTo;
+    var diagnosis = _filterDiagnosis;
+
+    final diagnoses = <String>{'all'};
+    for (final r in allRecords) {
+      final d = (r['diagnosis'] ?? '').trim();
+      if (d.isNotEmpty) diagnoses.add(d);
+    }
+
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -59,22 +83,46 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
                         Expanded(
                           child: TextField(
                             readOnly: true,
+                            controller: TextEditingController(
+                              text: from != null ? DateFormat('MMM d, yyyy').format(from!) : '',
+                            ),
                             decoration: InputDecoration(
                               hintText: 'From',
                               suffixIcon: const Icon(Icons.calendar_today_outlined, size: 18),
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                             ),
+                            onTap: () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                firstDate: DateTime(2000),
+                                lastDate: DateTime.now(),
+                                initialDate: from ?? DateTime.now(),
+                              );
+                              if (picked != null) setModalState(() => from = picked);
+                            },
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: TextField(
                             readOnly: true,
+                            controller: TextEditingController(
+                              text: to != null ? DateFormat('MMM d, yyyy').format(to!) : '',
+                            ),
                             decoration: InputDecoration(
                               hintText: 'To',
                               suffixIcon: const Icon(Icons.calendar_today_outlined, size: 18),
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                             ),
+                            onTap: () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                firstDate: DateTime(2000),
+                                lastDate: DateTime.now(),
+                                initialDate: to ?? DateTime.now(),
+                              );
+                              if (picked != null) setModalState(() => to = picked);
+                            },
                           ),
                         ),
                       ],
@@ -83,6 +131,7 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
                     const Text('Doctor Name', style: TextStyle(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 10),
                     TextField(
+                      controller: doctorCtrl,
                       decoration: InputDecoration(
                         hintText: 'Search doctor...',
                         prefixIcon: const Icon(Icons.search, size: 22),
@@ -93,15 +142,17 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
                     const Text('Diagnosis / Condition', style: TextStyle(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
-                      initialValue: 'all',
+                      value: diagnosis,
                       decoration: InputDecoration(
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),
-                      items: const [
-                        DropdownMenuItem(value: 'all', child: Text('All conditions')),
-                        DropdownMenuItem(value: 'dm', child: Text('Diabetes')),
-                      ],
-                      onChanged: (_) {},
+                      items: diagnoses
+                          .map((d) => DropdownMenuItem(
+                                value: d,
+                                child: Text(d == 'all' ? 'All conditions' : d),
+                              ))
+                          .toList(),
+                      onChanged: (v) => setModalState(() => diagnosis = v ?? 'all'),
                     ),
                     const SizedBox(height: 20),
                     Row(
@@ -116,9 +167,34 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
                       ],
                     ),
                     const SizedBox(height: 28),
-                    GradientPrimaryButton(label: 'Apply Filters', onPressed: () => Navigator.pop(ctx)),
+                    GradientPrimaryButton(
+                      label: 'Apply Filters',
+                      onPressed: () {
+                        setState(() {
+                          _filterFrom = from;
+                          _filterTo = to;
+                          _filterDoctor = doctorCtrl.text.trim();
+                          _filterDiagnosis = diagnosis;
+                          _filterAttachOnly = attachOnly;
+                          _filterDoctorCtrl.text = doctorCtrl.text.trim();
+                        });
+                        doctorCtrl.dispose();
+                        Navigator.pop(ctx);
+                      },
+                    ),
                     TextButton(
-                      onPressed: () {},
+                      onPressed: () {
+                        setState(() {
+                          _filterFrom = null;
+                          _filterTo = null;
+                          _filterDoctor = '';
+                          _filterDiagnosis = 'all';
+                          _filterAttachOnly = false;
+                          _filterDoctorCtrl.clear();
+                        });
+                        doctorCtrl.dispose();
+                        Navigator.pop(ctx);
+                      },
                       child: const Text('Clear Filters', style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.w700)),
                     ),
                   ],
@@ -132,9 +208,18 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
   }
 
   List<Map<String, String>> _filterRecords(List<Map<String, String>> records) {
-    if (_chip == 0) return records;
+    var filtered = HealthRecordService().filterRecords(
+      records,
+      from: _filterFrom,
+      to: _filterTo,
+      doctorQuery: _filterDoctor,
+      diagnosisQuery: _filterDiagnosis,
+      attachOnly: _filterAttachOnly,
+    );
+
+    if (_chip == 0) return filtered;
     final chip = _chips[_chip].toLowerCase();
-    return records.where((r) {
+    return filtered.where((r) {
       final type = (r['documentType'] ?? r['tag'] ?? '').toLowerCase();
       if (chip.contains('prescription')) return type.contains('prescription');
       if (chip.contains('lab')) return type.contains('lab');
@@ -170,7 +255,7 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
                 onPressed: () => Navigator.pushNamed(context, AppRoutes.healthRecordSearch),
                 icon: const Icon(Icons.search),
               ),
-              IconButton(onPressed: _openFilter, icon: const Icon(Icons.filter_list)),
+              IconButton(onPressed: () => _openFilter(snapshot.data ?? []), icon: const Icon(Icons.filter_list)),
             ],
           ),
           bottomNavigationBar: const CareLankaBottomNav(currentIndex: 0),

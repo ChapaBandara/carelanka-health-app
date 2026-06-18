@@ -46,6 +46,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (args is Map) {
         final prefill = args['prefillName'] as String?;
         if (prefill != null) _name.text = prefill;
+        final email = args['prefillEmail'] as String?;
+        if (email != null) _email.text = email;
+        final phone = args['prefillPhone'] as String?;
+        if (phone != null) _phone.text = phone;
+        final gender = args['prefillGender'] as String?;
+        if (gender != null) _gender = gender;
+        final blood = args['prefillBloodType'] as String?;
+        if (blood != null) _bloodType = blood;
+        final dobMs = args['prefillDob'] as int?;
+        if (dobMs != null) {
+          _dob = DateTime.fromMillisecondsSinceEpoch(dobMs);
+          _dobDisplay.text = DateHelpers.formatDmySlashes(_dob!);
+        }
       }
     });
   }

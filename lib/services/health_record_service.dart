@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:carelanka_app/core/firebase/firebase_collections.dart';
@@ -66,6 +67,47 @@ class HealthRecordService {
     };
   }
 
+  List<Map<String, String>> filterRecords(
+    List<Map<String, String>> records, {
+    DateTime? from,
+    DateTime? to,
+    String doctorQuery = '',
+    String diagnosisQuery = '',
+    bool attachOnly = false,
+  }) {
+    return records.where((r) {
+      if (from != null || to != null) {
+        final millis = int.tryParse(r['visitDateMillis'] ?? '') ?? 0;
+        if (millis == 0) return false;
+        final visit = DateTime.fromMillisecondsSinceEpoch(millis);
+        final day = DateTime(visit.year, visit.month, visit.day);
+        if (from != null) {
+          final fromDay = DateTime(from.year, from.month, from.day);
+          if (day.isBefore(fromDay)) return false;
+        }
+        if (to != null) {
+          final toDay = DateTime(to.year, to.month, to.day);
+          if (day.isAfter(toDay)) return false;
+        }
+      }
+
+      final doctor = (r['doctor'] ?? '').toLowerCase();
+      final dq = doctorQuery.trim().toLowerCase();
+      if (dq.isNotEmpty && !doctor.contains(dq)) return false;
+
+      final diagnosis = (r['diagnosis'] ?? '').toLowerCase();
+      final diagQ = diagnosisQuery.trim().toLowerCase();
+      if (diagQ.isNotEmpty && diagQ != 'all' && !diagnosis.contains(diagQ)) return false;
+
+      if (attachOnly) {
+        final url = r['documentUrl'] ?? '';
+        if (url.isEmpty) return false;
+      }
+
+      return true;
+    }).toList();
+  }
+
   List<Map<String, String>> searchRecords(List<Map<String, String>> records, String query) {
     final q = query.trim().toLowerCase();
     if (q.isEmpty) return records;
@@ -94,9 +136,7 @@ class HealthRecordService {
   }) async {
     String? documentUrl;
     if (documentFile != null) {
-      final ref = _storage.ref().child('users/$userId/records/${DateTime.now().millisecondsSinceEpoch}');
-      await ref.putFile(documentFile);
-      documentUrl = await ref.getDownloadURL();
+      documentUrl = await _uploadDocument(userId, documentFile);
     }
 
     final docRef = _col.doc();
@@ -128,9 +168,7 @@ class HealthRecordService {
   }) async {
     var documentUrl = existingDocumentUrl ?? '';
     if (documentFile != null) {
-      final ref = _storage.ref().child('users/$userId/records/${DateTime.now().millisecondsSinceEpoch}');
-      await ref.putFile(documentFile);
-      documentUrl = await ref.getDownloadURL();
+      documentUrl = await _uploadDocument(userId, documentFile) ?? documentUrl;
     }
 
     await _col.doc(recordId).update({
@@ -147,5 +185,28 @@ class HealthRecordService {
 
   Future<void> deleteRecord(String recordId) async {
     await _col.doc(recordId).delete();
+  }
+
+  Future<String?> _uploadDocument(String userId, File documentFile) async {
+    final ext = documentFile.path.split('.').last.toLowerCase();
+    final safeExt = ['jpg', 'jpeg', 'png', 'pdf', 'webp'].contains(ext) ? ext : 'jpg';
+    final path = 'users/$userId/records/${DateTime.now().millisecondsSinceEpoch}.$safeExt';
+
+    try {
+      final ref = _storage.ref().child(path);
+      await ref.putFile(
+        documentFile,
+        SettableMetadata(contentType: safeExt == 'pdf' ? 'application/pdf' : 'image/jpeg'),
+      );
+      return await ref.getDownloadURL();
+    } catch (_) {
+      try {
+        final bytes = await documentFile.readAsBytes();
+        final encoded = base64Encode(bytes);
+        return 'data:image/jpeg;base64,$encoded';
+      } catch (_) {
+        return null;
+      }
+    }
   }
 }

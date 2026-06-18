@@ -10,6 +10,7 @@ import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dar
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:carelanka_app/widgets/carelanka/profile_avatar.dart';
 import 'package:provider/provider.dart';
 
 /// CareLanka UI #51 — Edit My Profile screen.
@@ -156,22 +157,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Widget _profileAvatar(String initials) {
-    if (_pendingImageFile != null) {
-      return CircleAvatar(radius: 48, backgroundImage: FileImage(_pendingImageFile!));
-    }
-    if (_profileImageUrl != null && _profileImageUrl!.startsWith('local:')) {
-      return CircleAvatar(
-        radius: 48,
-        child: Text(
-          initials,
-          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
-        ),
-      );
-    }
-    if (_profileImageUrl != null && _profileImageUrl!.isNotEmpty) {
-      return CircleAvatar(radius: 48, backgroundImage: NetworkImage(_profileImageUrl!));
-    }
-    return CircleAvatar(radius: 48, child: Text(initials, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800)));
+    return ProfileAvatar(
+      radius: 48,
+      imageUrl: _profileImageUrl,
+      initials: initials,
+      pendingFile: _pendingImageFile,
+    );
   }
 
   Widget _genderOption(String value) {

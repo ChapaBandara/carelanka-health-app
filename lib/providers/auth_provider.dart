@@ -140,6 +140,10 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> reauthenticateWithPassword({required String email, required String password}) async {
+    await _authService.reauthenticateWithPassword(email, password);
+  }
+
   Future<void> deleteAccount({required String password}) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {

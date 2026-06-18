@@ -768,11 +768,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   for (final a in alerts)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 10),
-                      child: _alertRow(
-                        _alertAccent(a['accent'] ?? 'teal'),
-                        a['title'] ?? '',
-                        a['time'] ?? '',
-                      ),
+                      child: _alertRow(context, a),
                     ),
                 ],
               );
@@ -795,8 +791,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Widget _alertRow(Color accent, String title, String time) {
-    return Container(
+  void _openAlert(BuildContext context, Map<String, String> alert) {
+    final type = alert['type'] ?? '';
+    if (type == 'drug' || type == 'allergy') {
+      Navigator.pushNamed(context, '/drug-conflict-detail', arguments: alert);
+      return;
+    }
+    if (type == 'checkup') {
+      Navigator.pushNamed(context, AppRoutes.appointments);
+      return;
+    }
+    if (type == 'missed') {
+      Navigator.pushNamed(context, AppRoutes.reminderHistory);
+      return;
+    }
+    Navigator.pushNamed(context, AppRoutes.alerts);
+  }
+
+  Widget _alertRow(BuildContext context, Map<String, String> alert) {
+    final accent = _alertAccent(alert['accent'] ?? 'teal');
+    return InkWell(
+      onTap: () => _openAlert(context, alert),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -812,15 +829,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                  Text(alert['title'] ?? '', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
                   const SizedBox(height: 6),
-                  Text(time, style: const TextStyle(color: AppColors.textGrey, fontSize: 12)),
+                  Text(alert['time'] ?? '', style: const TextStyle(color: AppColors.textGrey, fontSize: 12)),
                 ],
               ),
             ),
           ],
         ),
       ),
+    ),
     );
   }
 }

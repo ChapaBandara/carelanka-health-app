@@ -11,7 +11,11 @@ class AlertService {
       _firestore.collection(FirebaseCollections.alerts);
 
   Stream<List<Map<String, String>>> watchAlertMaps(String userId) {
-    return _col.where('userId', isEqualTo: userId).snapshots().map(
+    return _col
+        .where('userId', isEqualTo: userId)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map(
           (snap) => snap.docs.map(_toUiMap).toList(),
         );
   }

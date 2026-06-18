@@ -1,6 +1,6 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:carelanka_app/services/email_otp_service.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -65,26 +65,25 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
 
     setState(() => _verifying = true);
     try {
-      final nowTs = Timestamp.fromDate(DateTime.now());
-      final query = await FirebaseFirestore.instance
-          .collection('password_reset_otps')
-          .where('email', isEqualTo: _email)
-          .where('otp', isEqualTo: _code)
-          .where('expiresAt', isGreaterThan: nowTs)
-          .limit(1)
-          .get();
-
+      await EmailOtpService.instance.verifyOtpCode(email: _email, code: _code);
       if (!mounted) return;
-      if (query.docs.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Invalid or expired code'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
       Navigator.pushNamed(context, AppRoutes.changePassword);
+    } on OtpIncorrectException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invalid or expired code'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } on OtpExpiredException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invalid or expired code'),
+          backgroundColor: Colors.red,
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

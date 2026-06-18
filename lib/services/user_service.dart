@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:carelanka_app/core/firebase/firebase_collections.dart';
 import 'package:carelanka_app/models/user_profile.dart';
@@ -76,6 +77,17 @@ class UserService {
 
   Future<void> updateUser(String uid, Map<String, dynamic> data) async {
     await _users.doc(uid).update(data);
+  }
+
+  Future<Uint8List?> getCachedProfileImageBytes(String uid) async {
+    final prefs = await SharedPreferences.getInstance();
+    final base64Str = prefs.getString('profile_image_$uid');
+    if (base64Str == null || base64Str.isEmpty) return null;
+    try {
+      return base64Decode(base64Str);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<String?> uploadProfileImage(String uid, File imageFile) async {

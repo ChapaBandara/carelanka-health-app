@@ -4,8 +4,21 @@ import 'package:flutter/material.dart';
 class FamilyDetailScreen extends StatelessWidget {
   const FamilyDetailScreen({super.key});
 
+  Map<String, String>? _member(BuildContext context) {
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map<String, String>) return args;
+    if (args is Map) {
+      return args.map((k, v) => MapEntry(k.toString(), v?.toString() ?? ''));
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final member = _member(context);
+    final name = member?['name'] ?? 'Family member';
+    final linked = member?['type'] == 'linked';
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -13,26 +26,43 @@ class FamilyDetailScreen extends StatelessWidget {
           icon: const Icon(Icons.arrow_back_ios_new, size: 20),
           onPressed: () => Navigator.maybePop(context),
         ),
-        title: const Text('Sarah Johnson'),
+        title: Text(name),
         centerTitle: true,
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _statRow('Medications', '2'),
-          _statRow('Records', '5'),
-          const SizedBox(height: 16),
-          OutlinedButton(onPressed: () {}, child: const Text('Open dependent dashboard')),
-          const SizedBox(height: 12),
-          TextButton(onPressed: () {}, child: const Text('Remove link', style: TextStyle(color: AppColors.errorRed))),
+          Card(
+            child: ListTile(
+              title: const Text('Relationship'),
+              trailing: Text(member?['meta'] ?? '—', style: const TextStyle(fontWeight: FontWeight.w700)),
+            ),
+          ),
+          Card(
+            child: ListTile(
+              title: const Text('Account type'),
+              trailing: Text(
+                linked ? 'Linked Account' : 'Dependent Profile',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
+          if ((member?['tag1'] ?? '').isNotEmpty)
+            Card(
+              child: ListTile(
+                title: const Text('Gender'),
+                trailing: Text(member!['tag1']!, style: const TextStyle(fontWeight: FontWeight.w700)),
+              ),
+            ),
+          if ((member?['tag2'] ?? '').isNotEmpty)
+            Card(
+              child: ListTile(
+                title: const Text('Blood type'),
+                trailing: Text(member!['tag2']!, style: const TextStyle(fontWeight: FontWeight.w700)),
+              ),
+            ),
         ],
       ),
-    );
-  }
-
-  Widget _statRow(String k, String v) {
-    return Card(
-      child: ListTile(title: Text(k), trailing: Text(v, style: const TextStyle(fontWeight: FontWeight.w800))),
     );
   }
 }

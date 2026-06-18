@@ -1,6 +1,7 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/widgets/carelanka/carelanka_section_card.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 /// CareLanka UI #57 — Privacy and Security screen.
@@ -16,6 +17,12 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
   bool camera = true;
   bool notifications = true;
   bool storage = true;
+
+  String get _sessionSubtitle {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return 'Not signed in';
+    return '1 device logged in';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -47,7 +54,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
               CareLankaSettingsTile(
                 icon: Icons.computer_outlined,
                 title: 'Active Sessions',
-                subtitle: '2 devices logged in',
+                subtitle: _sessionSubtitle,
                 trailing: TextButton(onPressed: () {}, child: const Text('Log out all other devices', style: TextStyle(color: AppColors.errorRed, fontSize: 12))),
                 showDivider: false,
               ),

@@ -1,10 +1,25 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 class FamilyProvider extends ChangeNotifier {
-  bool isLoading = false;
+  Map<String, String>? _activeMember;
 
-  void setLoading(bool value) {
-    isLoading = value;
+  Map<String, String>? get activeMember => _activeMember;
+
+  bool get isViewingFamilyMember => _activeMember != null;
+
+  String get activeDisplayName => _activeMember?['name'] ?? 'My account';
+
+  String? get activeProfileId => _activeMember?['profileId'];
+
+  String? get activeLinkedUserId => _activeMember?['linkedUserId'];
+
+  void switchToMember(Map<String, String> member) {
+    _activeMember = Map<String, String>.from(member);
+    notifyListeners();
+  }
+
+  void switchToSelf() {
+    _activeMember = null;
     notifyListeners();
   }
 }

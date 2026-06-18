@@ -1,8 +1,9 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
-import 'package:carelanka_app/core/design/carelanka_gradients.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/services/alert_service.dart';
+import 'package:carelanka_app/services/medication_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class DrugConflictDetailScreen extends StatefulWidget {
@@ -13,7 +14,9 @@ class DrugConflictDetailScreen extends StatefulWidget {
 }
 
 class _DrugConflictDetailScreenState extends State<DrugConflictDetailScreen> {
-  bool _expanded = false;
+  bool _expanded = true;
+  List<Map<String, dynamic>> _medications = [];
+  bool _loadingMeds = true;
 
   Map<String, String>? _alert(BuildContext context) {
     final args = ModalRoute.of(context)?.settings.arguments;
@@ -24,36 +27,82 @@ class _DrugConflictDetailScreenState extends State<DrugConflictDetailScreen> {
     return null;
   }
 
-  ({String name, String dosage}) _parseMedication(String message, int index) {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadMedications());
+  }
+
+  Future<void> _loadMedications() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      if (mounted) setState(() => _loadingMeds = false);
+      return;
+    }
+    try {
+      final meds = await MedicationService().watchMedications(uid).first;
+      if (mounted) {
+        setState(() {
+          _medications = meds;
+          _loadingMeds = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingMeds = false);
+    }
+  }
+
+  ({String name, String dosage}) _medAt(int index, String message) {
     final conflictMatch = RegExp(r'Conflicts with:\s*([^.]+)', caseSensitive: false).firstMatch(message);
     final allergyMatch = RegExp(r'allergic to:\s*(.+)', caseSensitive: false).firstMatch(message);
-    final dosageMatch = RegExp(
-      r'(\d+\s*(?:mg|mcg|g|ml|IU|units?))',
-      caseSensitive: false,
-    ).allMatches(message).map((m) => m.group(1) ?? '').where((d) => d.isNotEmpty).toList();
+    final conflictingName = conflictMatch?.group(1)?.trim().toLowerCase() ?? '';
+    final allergyName = allergyMatch?.group(1)?.trim().toLowerCase() ?? '';
+
+    Map<String, dynamic>? matchMed(String needle) {
+      if (needle.isEmpty) return null;
+      for (final med in _medications) {
+        final name = (med['name'] as String? ?? '').toLowerCase();
+        if (name.contains(needle) || needle.contains(name)) return med;
+      }
+      return null;
+    }
 
     if (index == 0) {
+      final newest = _medications.isNotEmpty ? _medications.last : null;
+      if (newest != null) {
+        return (
+          name: newest['name'] as String? ?? 'Your medication',
+          dosage: newest['dosage'] as String? ?? '—',
+        );
+      }
+      return (name: 'Your medication', dosage: '—');
+    }
+
+    final other = matchMed(conflictingName) ?? matchMed(allergyName);
+    if (other != null) {
       return (
-        name: 'Your medication',
-        dosage: dosageMatch.isNotEmpty ? dosageMatch.first : '—',
+        name: other['name'] as String? ?? 'Medication',
+        dosage: other['dosage'] as String? ?? '—',
       );
     }
 
-    if (conflictMatch != null) {
-      return (
-        name: conflictMatch.group(1)?.trim() ?? 'Medication',
-        dosage: dosageMatch.length > 1 ? dosageMatch[1] : '—',
-      );
+    if (conflictingName.isNotEmpty) {
+      final display = conflictMatch!.group(1)!.trim();
+      return (name: display, dosage: '—');
     }
-
-    if (allergyMatch != null) {
-      return (
-        name: allergyMatch.group(1)?.trim() ?? 'Allergen',
-        dosage: '—',
-      );
+    if (allergyName.isNotEmpty) {
+      return (name: allergyMatch!.group(1)!.trim(), dosage: '—');
     }
-
     return (name: 'Medication', dosage: '—');
+  }
+
+  String _explanationText(String message) {
+    if (message.trim().isEmpty) {
+      return 'These medications may interact. Please consult your doctor before taking them together.';
+    }
+    final lines = message.split('\n').where((l) => l.trim().isNotEmpty).toList();
+    if (lines.length == 1) return lines.first;
+    return lines.join('\n\n');
   }
 
   Future<void> _markRead(BuildContext context, Map<String, String> alert) async {
@@ -77,8 +126,8 @@ class _DrugConflictDetailScreenState extends State<DrugConflictDetailScreen> {
     final alert = _alert(context);
     final message = alert?['title'] ?? '';
     final detectedAt = alert?['time'] ?? '';
-    final firstMed = _parseMedication(message, 0);
-    final secondMed = _parseMedication(message, 1);
+    final firstMed = _medAt(0, message);
+    final secondMed = _medAt(1, message);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -89,253 +138,258 @@ class _DrugConflictDetailScreenState extends State<DrugConflictDetailScreen> {
           icon: const Icon(Icons.arrow_back_ios_new, size: 20, color: AppColors.navy),
           onPressed: () => Navigator.maybePop(context),
         ),
+        title: const Text('Alerts and Warnings', style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark)),
+        centerTitle: true,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                side: const BorderSide(color: Color(0xFFCCCCCC)),
+              ),
+              onPressed: alert == null ? null : () => _markRead(context, alert),
+              child: const Text('Mark all read', style: TextStyle(fontSize: 12, color: AppColors.textDark)),
+            ),
+          ),
+        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(44),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Row(
+              children: [
+                _tabLabel('All', false),
+                _tabLabel('Drug Conflicts', true),
+                _tabLabel('Checkup', false),
+              ],
+            ),
+          ),
+        ),
       ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-                child: Column(
-                  children: [
-                    const Icon(
-                      Icons.warning_amber_rounded,
-                      size: 80,
-                      color: AppColors.errorRed,
-                    ),
-                    const SizedBox(height: 20),
-                    const Text(
-                      'Drug Conflict Detected',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textDark,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    const Text(
-                      'These medications in your list may interact dangerously',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: AppColors.textGrey,
-                        height: 1.4,
-                      ),
-                    ),
-                    const SizedBox(height: 28),
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'Conflicting Medications',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.primaryTeal,
+      body: _loadingMeds
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+                    child: Column(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded, size: 80, color: AppColors.errorRed),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Drug Conflict Detected',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textDark),
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFFE8E8E8)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.04),
-                            blurRadius: 10,
-                            offset: const Offset(0, 3),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'These medications in your list may interact dangerously',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 14, color: AppColors.textGrey, height: 1.4),
+                        ),
+                        const SizedBox(height: 24),
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Conflicting Medications',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.navy),
                           ),
-                        ],
-                      ),
-                      child: Column(
-                        children: [
-                          _medicationTile(firstMed.name, firstMed.dosage),
-                          const SizedBox(height: 12),
-                          const Icon(Icons.swap_vert, color: AppColors.textGrey, size: 28),
-                          const SizedBox(height: 12),
-                          _medicationTile(secondMed.name, secondMed.dosage),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFEBEE),
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: const Text(
-                        'Risk Level: HIGH',
-                        style: TextStyle(
-                          color: AppColors.errorRed,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 13,
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Material(
-                      color: const Color(0xFFF7F8FA),
-                      borderRadius: BorderRadius.circular(14),
-                      child: InkWell(
-                        onTap: () => setState(() => _expanded = !_expanded),
-                        borderRadius: BorderRadius.circular(14),
-                        child: Padding(
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
                           padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFFE8E8E8)),
+                          ),
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Row(
-                                children: [
-                                  const Expanded(
-                                    child: Text(
-                                      'What does this mean?',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 15,
-                                        color: AppColors.textDark,
-                                      ),
-                                    ),
-                                  ),
-                                  Icon(
-                                    _expanded ? Icons.expand_less : Icons.expand_more,
-                                    color: AppColors.textGrey,
-                                  ),
-                                ],
+                              _medicationRow(
+                                name: firstMed.name,
+                                dosage: firstMed.dosage,
+                                iconBg: const Color(0xFFE0F7F7),
+                                iconColor: AppColors.primaryTeal,
                               ),
-                              if (_expanded) ...[
-                                const SizedBox(height: 12),
-                                Text(
-                                  message.isNotEmpty
-                                      ? message
-                                      : 'No additional details available.',
-                                  style: const TextStyle(
-                                    color: AppColors.textGrey,
-                                    fontSize: 14,
-                                    height: 1.5,
-                                  ),
+                              const SizedBox(height: 8),
+                              Container(
+                                width: 36,
+                                height: 36,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFFFFEBEE),
+                                  shape: BoxShape.circle,
                                 ),
-                              ],
+                                child: const Icon(Icons.swap_vert, color: AppColors.errorRed, size: 22),
+                              ),
+                              const SizedBox(height: 8),
+                              _medicationRow(
+                                name: secondMed.name,
+                                dosage: secondMed.dosage,
+                                iconBg: const Color(0xFFFFF3E0),
+                                iconColor: const Color(0xFFFF9800),
+                              ),
                             ],
                           ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      detectedAt.isNotEmpty ? 'Detected: $detectedAt' : 'Detected: —',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: AppColors.textGrey,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
-              child: Column(
-                children: [
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: alert == null ? null : () => _markRead(context, alert),
-                        borderRadius: BorderRadius.circular(14),
-                        child: Ink(
+                        const SizedBox(height: 16),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(14),
-                            gradient: CareLankaGradients.primaryHorizontal,
+                            color: AppColors.errorRed,
+                            borderRadius: BorderRadius.circular(24),
                           ),
-                          child: const Center(
-                            child: Text(
-                              'Mark as Read',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
+                          child: const Text(
+                            'Risk Level: HIGH',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Material(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          child: InkWell(
+                            onTap: () => setState(() => _expanded = !_expanded),
+                            borderRadius: BorderRadius.circular(14),
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: const Color(0xFFE8E8E8)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const Expanded(
+                                        child: Text(
+                                          'What does this mean?',
+                                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.textDark),
+                                        ),
+                                      ),
+                                      Icon(_expanded ? Icons.expand_less : Icons.expand_more, color: AppColors.textGrey),
+                                    ],
+                                  ),
+                                  if (_expanded) ...[
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      _explanationText(message),
+                                      style: const TextStyle(color: AppColors.textGrey, fontSize: 14, height: 1.5),
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
                           ),
                         ),
-                      ),
+                        const SizedBox(height: 20),
+                        Text(
+                          detectedAt.isNotEmpty ? 'Detected: $detectedAt' : 'Detected: —',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: AppColors.textGrey, fontSize: 13),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.primaryTeal,
-                        side: const BorderSide(color: AppColors.primaryTeal, width: 1.5),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.navy,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            elevation: 0,
+                          ),
+                          onPressed: alert == null ? null : () => _markRead(context, alert),
+                          child: const Text('Mark as Read', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                        ),
                       ),
-                      onPressed: () => Navigator.pushNamed(context, AppRoutes.addAppointment),
-                      child: const Text(
-                        'Book Doctor Appointment',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.primaryTeal,
+                            side: const BorderSide(color: AppColors.primaryTeal, width: 1.5),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          onPressed: () => Navigator.pushNamed(context, AppRoutes.addAppointment),
+                          child: const Text('Book Doctor Appointment', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed: () {},
-                    child: const Text(
-                      'Call My Doctor',
-                      style: TextStyle(
-                        color: AppColors.primaryTeal,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
     );
   }
 
-  Widget _medicationTile(String name, String dosage) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF7F8FA),
-        borderRadius: BorderRadius.circular(12),
-      ),
+  Widget _tabLabel(String label, bool active) {
+    return Expanded(
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            name,
-            style: const TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 16,
-              color: AppColors.navy,
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 14,
+              color: active ? AppColors.navy : AppColors.textGrey,
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            dosage,
-            style: const TextStyle(
-              color: AppColors.textGrey,
-              fontSize: 13,
+          const SizedBox(height: 8),
+          Container(
+            height: 3,
+            decoration: BoxDecoration(
+              color: active ? AppColors.primaryTeal : Colors.transparent,
+              borderRadius: BorderRadius.circular(2),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _medicationRow({
+    required String name,
+    required String dosage,
+    required Color iconBg,
+    required Color iconColor,
+  }) {
+    return Row(
+      children: [
+        CircleAvatar(
+          radius: 22,
+          backgroundColor: iconBg,
+          child: Icon(Icons.medication_liquid, color: iconColor, size: 22),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(name, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.textDark)),
+              const SizedBox(height: 2),
+              Text(dosage, style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

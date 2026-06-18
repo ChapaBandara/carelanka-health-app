@@ -1,4 +1,5 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
+import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/services/alert_service.dart';
 import 'package:carelanka_app/widgets/carelanka/carelanka_bottom_nav.dart';
@@ -129,6 +130,10 @@ class _AlertsScreenState extends State<AlertsScreen> with SingleTickerProviderSt
       onTap: () {
         if (a['type'] == 'drug' || a['type'] == 'allergy') {
           Navigator.pushNamed(context, '/drug-conflict-detail', arguments: a);
+        } else if (a['type'] == 'checkup') {
+          Navigator.pushNamed(context, AppRoutes.appointments);
+        } else if (a['type'] == 'missed') {
+          Navigator.pushNamed(context, AppRoutes.reminderHistory);
         } else {
           _markRead(context, a);
         }
