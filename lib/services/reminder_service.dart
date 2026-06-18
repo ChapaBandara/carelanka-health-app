@@ -22,6 +22,144 @@ class ReminderService {
         );
   }
 
+  Stream<List<Map<String, dynamic>>> watchAllDoseHistory(String userId) {
+    final controller = StreamController<List<Map<String, dynamic>>>();
+    QuerySnapshot<Map<String, dynamic>>? lastMeds;
+    QuerySnapshot<Map<String, dynamic>>? lastIllnesses;
+    QuerySnapshot<Map<String, dynamic>>? lastLogs;
+
+    void emit() {
+      if (lastMeds == null || lastIllnesses == null || lastLogs == null) return;
+      controller.add(_buildAllDoseHistory(lastMeds!, lastIllnesses!, lastLogs!));
+    }
+
+    final medSub = _firestore
+        .collection(FirebaseCollections.medications)
+        .where('userId', isEqualTo: userId)
+        .snapshots()
+        .listen((snap) {
+      lastMeds = snap;
+      emit();
+    });
+    final illnessSub = _firestore
+        .collection(FirebaseCollections.illnesses)
+        .where('userId', isEqualTo: userId)
+        .snapshots()
+        .listen((snap) {
+      lastIllnesses = snap;
+      emit();
+    });
+    final logSub = _col
+        .where('userId', isEqualTo: userId)
+        .orderBy('scheduledTime', descending: true)
+        .snapshots()
+        .listen((snap) {
+      lastLogs = snap;
+      emit();
+    });
+
+    controller.onCancel = () {
+      medSub.cancel();
+      illnessSub.cancel();
+      logSub.cancel();
+    };
+
+    return controller.stream;
+  }
+
+  List<Map<String, dynamic>> _buildAllDoseHistory(
+    QuerySnapshot<Map<String, dynamic>> medSnap,
+    QuerySnapshot<Map<String, dynamic>> illnessSnap,
+    QuerySnapshot<Map<String, dynamic>> logSnap,
+  ) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final windowStart = today.subtract(const Duration(days: 7));
+    final windowEnd = today.add(const Duration(days: 1));
+
+    final illnessNames = <String, String>{};
+    final activeIllnessIds = <String>{};
+    for (final doc in illnessSnap.docs) {
+      final data = doc.data();
+      illnessNames[doc.id] = data['illnessName'] as String? ?? '';
+      final status = data['status'] as String? ?? 'active';
+      if (status != 'completed') activeIllnessIds.add(doc.id);
+    }
+
+    String doseKey(String medId, DateTime scheduledAt) =>
+        '$medId-${scheduledAt.year}-${scheduledAt.month}-${scheduledAt.day}-${scheduledAt.hour}-${scheduledAt.minute}';
+
+    final loggedKeys = <String>{};
+    final results = <Map<String, dynamic>>[];
+
+    for (final doc in logSnap.docs) {
+      final d = doc.data();
+      final scheduled = d['scheduledTime'];
+      if (scheduled is! Timestamp) continue;
+      final scheduledAt = scheduled.toDate();
+      if (scheduledAt.isBefore(windowStart) || !scheduledAt.isBefore(windowEnd)) continue;
+
+      final medId = d['medicationId'] as String? ?? '';
+      loggedKeys.add(doseKey(medId, scheduledAt));
+
+      var status = (d['status'] as String? ?? 'confirmed').toLowerCase();
+      if (status == 'taken') status = 'confirmed';
+
+      results.add({
+        ...d,
+        'logId': doc.id,
+        'medicationId': medId,
+        'medicationName': d['medicationName'] as String? ?? d['name'] as String? ?? 'Medication',
+        'condition': d['condition'] as String? ?? '',
+        'scheduledTime': scheduledAt,
+        'status': status,
+      });
+    }
+
+    for (var dayOffset = 7; dayOffset >= 0; dayOffset--) {
+      final day = today.subtract(Duration(days: dayOffset));
+      for (final doc in medSnap.docs) {
+        final med = doc.data();
+        if (med['active'] != true) continue;
+        final illnessId = med['illnessId'] as String? ?? '';
+        if (!activeIllnessIds.contains(illnessId)) continue;
+
+        final medId = doc.id;
+        final name = med['name'] as String? ?? 'Medication';
+        final dosage = med['dosage'] as String? ?? '';
+        final condition = illnessNames[illnessId] ?? '';
+        final times = med['scheduledTimes'] as List? ?? [];
+
+        for (final raw in times) {
+          final scheduledAt = MedicationScheduleHelper.parseTimeOnDay(raw.toString(), day);
+          if (scheduledAt == null) continue;
+          if (scheduledAt.isBefore(windowStart) || !scheduledAt.isBefore(windowEnd)) continue;
+
+          final key = doseKey(medId, scheduledAt);
+          if (loggedKeys.contains(key)) continue;
+
+          results.add({
+            'medicationId': medId,
+            'medicationName': name,
+            'dosage': dosage,
+            'condition': condition,
+            'scheduledTime': scheduledAt,
+            'scheduledLabel': raw.toString(),
+            'status': 'pending',
+          });
+        }
+      }
+    }
+
+    results.sort((a, b) {
+      final aTime = a['scheduledTime'] as DateTime;
+      final bTime = b['scheduledTime'] as DateTime;
+      return bTime.compareTo(aTime);
+    });
+
+    return results;
+  }
+
   Stream<int> watchTakenDosesToday(String userId) {
     return _col.where('userId', isEqualTo: userId).snapshots().map((snap) {
       final now = DateTime.now();

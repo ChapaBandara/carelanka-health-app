@@ -159,6 +159,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     if (_pendingImageFile != null) {
       return CircleAvatar(radius: 48, backgroundImage: FileImage(_pendingImageFile!));
     }
+    if (_profileImageUrl != null && _profileImageUrl!.startsWith('local:')) {
+      return CircleAvatar(
+        radius: 48,
+        child: Text(
+          initials,
+          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
+        ),
+      );
+    }
     if (_profileImageUrl != null && _profileImageUrl!.isNotEmpty) {
       return CircleAvatar(radius: 48, backgroundImage: NetworkImage(_profileImageUrl!));
     }

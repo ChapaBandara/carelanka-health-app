@@ -45,6 +45,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
 
   String? _conflictMessage;
   String? _allergyMessage;
+  List<String> _userAllergies = [];
 
   static const _categories = ['Tablet', 'Capsule', 'Syrup', 'Injection', 'Cream', 'Drops'];
   static const _frequencies = ['Once daily', 'Twice daily', 'Three times daily', 'Four times daily'];
@@ -54,6 +55,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
   void initState() {
     super.initState();
     _name.addListener(_checkConflicts);
+    _loadAllergies();
     WidgetsBinding.instance.addPostFrameCallback((_) => _initFromArgs());
   }
 
@@ -182,6 +184,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
     final daysController = TextEditingController(text: '7');
     final stockController = TextEditingController(text: '14');
     final alertDaysController = TextEditingController(text: '3');
+    final sheetFormKey = GlobalKey<FormState>();
     var fixed = true;
     var stockOn = true;
 
@@ -201,10 +204,12 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                 ),
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
                 child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
+                  child: Form(
+                    key: sheetFormKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                       Row(
                         children: [
                           const Expanded(
@@ -244,24 +249,38 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                         ],
                       ),
                       const SizedBox(height: 18),
-                      if (fixed) ...[
-                        const Text('Prescribed for how many days?', style: TextStyle(fontWeight: FontWeight.w500)),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: daysController,
-                          keyboardType: TextInputType.number,
-                          decoration: _sheetFieldDecoration('e.g. 7'),
+                      const Text('Prescribed for how many days?', style: TextStyle(fontWeight: FontWeight.w500)),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: daysController,
+                        keyboardType: TextInputType.number,
+                        decoration: _sheetFieldDecoration(
+                          fixed ? 'Enter number of days' : 'Optional',
                         ),
-                        const SizedBox(height: 16),
-                        const Text('Total tablets/doses prescribed', style: TextStyle(fontWeight: FontWeight.w500)),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: stockController,
-                          keyboardType: TextInputType.number,
-                          decoration: _sheetFieldDecoration('e.g. 14'),
+                        validator: (v) {
+                          if (fixed && (v == null || v.trim().isEmpty)) {
+                            return 'Required for fixed duration';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      const Text('Total tablets/doses prescribed', style: TextStyle(fontWeight: FontWeight.w500)),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: stockController,
+                        keyboardType: TextInputType.number,
+                        decoration: _sheetFieldDecoration(
+                          fixed ? 'Enter total tablets/doses' : 'Optional',
                         ),
-                        const SizedBox(height: 18),
-                      ],
+                        validator: (v) {
+                          if (fixed && (v == null || v.trim().isEmpty)) {
+                            return 'Required for fixed duration';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 18),
                       const Divider(),
                       const SizedBox(height: 8),
                       Row(
@@ -308,10 +327,11 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                       GradientPrimaryButton(
                         label: 'Continue',
                         onPressed: () {
+                          if (!(sheetFormKey.currentState?.validate() ?? false)) return;
                           setState(() {
                             _fixedDuration = fixed;
-                            _prescribedDays.text = fixed ? daysController.text : '30';
-                            _totalStock.text = fixed ? stockController.text : '30';
+                            _prescribedDays.text = daysController.text.trim().isEmpty ? '30' : daysController.text;
+                            _totalStock.text = stockController.text.trim().isEmpty ? '30' : stockController.text;
                             _lowStockDays.text = alertDaysController.text;
                             _stockReminderOn = stockOn;
                             _prescriptionReady = true;
@@ -320,6 +340,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                         },
                       ),
                     ],
+                    ),
                   ),
                 ),
               ),
@@ -381,6 +402,87 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
     );
   }
 
+  Future<void> _loadAllergies() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('allergies')
+          .where('userId', isEqualTo: userId)
+          .get();
+      if (!mounted) return;
+      setState(() {
+        _userAllergies = snap.docs
+            .map((d) => d.data()['allergyName'] as String? ?? '')
+            .where((n) => n.isNotEmpty)
+            .toList();
+      });
+    } catch (_) {}
+  }
+
+  void _showConflictOverlay(BuildContext context, String message) {
+    final overlay = Overlay.of(context);
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) => Positioned(
+        top: MediaQuery.of(context).padding.top + 16,
+        left: 16,
+        right: 16,
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFEBEE),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.errorRed, width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.12),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: AppColors.errorRed, size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Drug Conflict Detected',
+                        style: TextStyle(
+                          color: AppColors.errorRed,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        message,
+                        style: const TextStyle(color: Color(0xFFB71C1C), fontSize: 13, height: 1.4),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    overlay.insert(entry);
+    Future.delayed(const Duration(seconds: 4), () {
+      try {
+        entry.remove();
+      } catch (_) {}
+    });
+  }
+
   Future<void> _checkConflicts() async {
     final medName = _name.text.trim();
     if (medName.isEmpty) {
@@ -402,6 +504,12 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
         _conflictMessage = result.conflictMessage;
         _allergyMessage = result.allergyMessage;
       });
+      if (result.hasWarning) {
+        _showConflictOverlay(
+          context,
+          result.conflictMessage ?? result.allergyMessage ?? '',
+        );
+      }
     } catch (_) {
       // Never surface a crash to the user — conflicts are advisory only.
     }
@@ -621,6 +729,54 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                         controller: _name,
                         validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
                       ),
+                      if (_userAllergies.isNotEmpty)
+                        Container(
+                          margin: const EdgeInsets.only(top: 8, bottom: 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF9C4),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFFFF176)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Row(
+                                children: [
+                                  Icon(Icons.warning_amber_rounded, color: Color(0xFFF9A825), size: 18),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Your Allergies',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF6D4C00),
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: _userAllergies
+                                    .map(
+                                      (a) => Chip(
+                                        label: Text(
+                                          a,
+                                          style: const TextStyle(fontSize: 12, color: Color(0xFF6D4C00)),
+                                        ),
+                                        backgroundColor: const Color(0xFFFFF9C4),
+                                        side: const BorderSide(color: Color(0xFFF9A825)),
+                                        visualDensity: VisualDensity.compact,
+                                        padding: EdgeInsets.zero,
+                                      ),
+                                    )
+                                    .toList(),
+                              ),
+                            ],
+                          ),
+                        ),
                       const SizedBox(height: 16),
                       LabeledIconField(
                         label: 'Dosage',

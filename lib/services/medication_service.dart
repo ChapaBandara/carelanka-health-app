@@ -64,6 +64,10 @@ class MedicationService {
     return ref.id;
   }
 
+  Future<void> deleteMedication(String medicationId) async {
+    await _col.doc(medicationId).delete();
+  }
+
   Future<void> updateMedication({
     required String medicationId,
     required String name,

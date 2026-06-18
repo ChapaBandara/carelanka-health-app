@@ -254,23 +254,6 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> with SingleTick
                                 style: TextStyle(color: metaColor, fontSize: 13, fontStyle: FontStyle.italic),
                               ),
                             ],
-                            if (reminders.isNotEmpty) ...[
-                              const SizedBox(height: 10),
-                              Wrap(
-                                spacing: 6,
-                                children: reminders
-                                    .map(
-                                      (t) => Chip(
-                                        label: Text(t, style: const TextStyle(color: AppColors.primaryTeal, fontSize: 11, fontWeight: FontWeight.w600)),
-                                        backgroundColor: const Color(0xFFE0F7F7),
-                                        visualDensity: VisualDensity.compact,
-                                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                                        side: BorderSide.none,
-                                      ),
-                                    )
-                                    .toList(),
-                              ),
-                            ],
                           ],
                         ),
                       ),

@@ -7,6 +7,7 @@ import 'package:carelanka_app/providers/medication_provider.dart';
 import 'package:carelanka_app/providers/reminder_provider.dart';
 import 'package:carelanka_app/providers/user_data_provider.dart';
 import 'package:carelanka_app/screens/auth/verify_reset_code_screen.dart';
+import 'package:carelanka_app/screens/alerts/drug_conflict_detail_screen.dart';
 import 'package:carelanka_app/screens/alerts/alerts_screen.dart';
 import 'package:carelanka_app/screens/appointments/add_appointment_screen.dart';
 import 'package:carelanka_app/screens/appointments/appointments_screen.dart';
@@ -113,6 +114,7 @@ class CareLankaApp extends StatelessWidget {
           AppRoutes.familyDetail: (_) => const FamilyDetailScreen(),
           AppRoutes.allergies: (_) => const AllergyScreen(),
           AppRoutes.alerts: (_) => const AlertsScreen(),
+          '/drug-conflict-detail': (_) => const DrugConflictDetailScreen(),
           AppRoutes.editProfile: (_) => const EditProfileScreen(),
           AppRoutes.notificationSettings: (_) => const NotificationSettingsScreen(),
           AppRoutes.privacy: (_) => const PrivacyScreen(),

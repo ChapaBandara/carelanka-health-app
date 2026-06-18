@@ -126,7 +126,13 @@ class _AlertsScreenState extends State<AlertsScreen> with SingleTickerProviderSt
     final accent = _color(a['accent'] ?? 'teal');
     final tint = _tint(a['tint'] ?? 'white');
     return InkWell(
-      onTap: () => _markRead(context, a),
+      onTap: () {
+        if (a['type'] == 'drug' || a['type'] == 'allergy') {
+          Navigator.pushNamed(context, '/drug-conflict-detail', arguments: a);
+        } else {
+          _markRead(context, a);
+        }
+      },
       borderRadius: BorderRadius.circular(14),
       child: Container(
       decoration: BoxDecoration(

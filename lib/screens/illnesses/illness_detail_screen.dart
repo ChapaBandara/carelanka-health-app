@@ -87,7 +87,60 @@ class IllnessDetailScreen extends StatelessWidget {
                           .map(
                             (m) => Padding(
                               padding: const EdgeInsets.only(bottom: 12),
-                              child: _medicationCard(context, m, illnessId: illnessId, illnessName: displayName),
+                              child: Dismissible(
+                                key: ValueKey(m['medicationId'] ?? m['id'] ?? ''),
+                                direction: DismissDirection.endToStart,
+                                background: Container(
+                                  alignment: Alignment.centerRight,
+                                  padding: const EdgeInsets.only(right: 24),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.errorRed,
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
+                                ),
+                                confirmDismiss: (_) async {
+                                  final result = await showDialog<bool>(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      title: const Text('Delete medication?'),
+                                      content: Text(
+                                        'Delete ${m['name'] ?? 'this medication'}? '
+                                        'This cannot be undone.',
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(ctx, false),
+                                          child: const Text('Cancel'),
+                                        ),
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(ctx, true),
+                                          style: TextButton.styleFrom(foregroundColor: AppColors.errorRed),
+                                          child: const Text('Delete'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  return result ?? false;
+                                },
+                                onDismissed: (_) async {
+                                  final id = m['medicationId'] ?? m['id'] ?? '';
+                                  if (id.isEmpty) return;
+                                  try {
+                                    await MedicationService().deleteMedication(id);
+                                  } catch (e) {
+                                    if (context.mounted) {
+                                      showFirebaseErrorSnackBar(context, firebaseErrorMessage(e));
+                                    }
+                                  }
+                                },
+                                child: _medicationCard(
+                                  context,
+                                  m,
+                                  illnessId: illnessId,
+                                  illnessName: displayName,
+                                ),
+                              ),
                             ),
                           )
                           .toList(),

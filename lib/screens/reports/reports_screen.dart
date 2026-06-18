@@ -5,6 +5,7 @@ import 'package:carelanka_app/services/adherence_service.dart';
 import 'package:carelanka_app/services/reminder_service.dart';
 import 'package:carelanka_app/services/report_service.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
+import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
@@ -80,7 +81,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
         reportData: reportData,
       );
       if (!mounted) return;
-      showFirebaseSuccessSnackBar(context, 'Report generated');
+      await showCareLankaSuccessNotification(
+        context,
+        title: 'Report Downloaded',
+        subtitle: 'Your health report has been saved successfully.',
+      );
     } catch (e) {
       if (!mounted) return;
       showFirebaseErrorSnackBar(context, firebaseErrorMessage(e));

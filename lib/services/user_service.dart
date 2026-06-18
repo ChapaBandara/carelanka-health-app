@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:carelanka_app/core/firebase/firebase_collections.dart';
 import 'package:carelanka_app/models/user_profile.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class UserService {
   UserService({
@@ -76,10 +78,23 @@ class UserService {
     await _users.doc(uid).update(data);
   }
 
-  Future<String> uploadProfileImage(String uid, File file) async {
-    final ref = _storage.ref().child('users/$uid/profile.jpg');
-    await ref.putFile(file);
-    return ref.getDownloadURL();
+  Future<String?> uploadProfileImage(String uid, File imageFile) async {
+    try {
+      final ref = _storage.ref().child('users/$uid/profile/photo.jpg');
+      await ref.putFile(imageFile);
+      final url = await ref.getDownloadURL();
+      return url;
+    } catch (_) {
+      try {
+        final bytes = await imageFile.readAsBytes();
+        final base64Str = base64Encode(bytes);
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('profile_image_$uid', base64Str);
+        return 'local:$uid';
+      } catch (_) {
+        return null;
+      }
+    }
   }
 
   Future<Map<String, dynamic>?> getNotificationPreferences(String uid) async {

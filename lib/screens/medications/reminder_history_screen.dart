@@ -1,6 +1,5 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:carelanka_app/models/daily_dose_item.dart';
 import 'package:carelanka_app/services/reminder_service.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
@@ -19,88 +18,161 @@ class ReminderHistoryScreen extends StatefulWidget {
 class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tab = TabController(length: 4, vsync: this);
+  late final Stream<List<Map<String, dynamic>>> _doseHistoryStream;
   bool _searchOpen = false;
-  final _searchCtrl = TextEditingController();
+  List<Map<String, dynamic>> _allLogs = [];
+  List<Map<String, dynamic>> _filteredLogs = [];
+  List<Map<String, dynamic>>? _lastStreamSnapshot;
+  final _searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(_applyFilter);
+    _doseHistoryStream = ReminderService().watchAllDoseHistory(
+      FirebaseAuth.instance.currentUser!.uid,
+    );
+  }
 
   @override
   void dispose() {
+    _searchController.removeListener(_applyFilter);
     _tab.dispose();
-    _searchCtrl.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
-  List<Map<String, String>> _applySearch(List<Map<String, String>> reminders) {
-    final q = _searchCtrl.text.trim().toLowerCase();
-    if (q.isEmpty) return reminders;
-    return reminders.where((r) {
-      final med = (r['medication'] ?? '').toLowerCase();
-      final cond = (r['condition'] ?? '').toLowerCase();
-      return med.contains(q) || cond.contains(q);
-    }).toList();
+  void _applyFilter() {
+    final query = _searchController.text.toLowerCase().trim();
+    setState(() {
+      if (query.isEmpty) {
+        _filteredLogs = _allLogs;
+      } else {
+        _filteredLogs = _allLogs.where((log) {
+          final name = (log['medicationName'] ?? '').toString().toLowerCase();
+          final condition = (log['condition'] ?? '').toString().toLowerCase();
+          final status = (log['status'] ?? '').toString().toLowerCase();
+          return name.contains(query) ||
+              condition.contains(query) ||
+              status.contains(query);
+        }).toList();
+      }
+    });
+  }
+
+  DateTime? _scheduledAt(Map<String, dynamic> entry) {
+    final scheduled = entry['scheduledTime'];
+    if (scheduled is DateTime) return scheduled;
+    return null;
+  }
+
+  String _dateGroupFor(DateTime scheduledAt) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yday = today.subtract(const Duration(days: 1));
+    final day = DateTime(scheduledAt.year, scheduledAt.month, scheduledAt.day);
+
+    if (day == today) {
+      return 'Today';
+    } else if (day == yday) {
+      return 'Yesterday';
+    } else {
+      return DateFormat.yMMMMd().format(day);
+    }
+  }
+
+  Map<String, String> _entryToUiMap(Map<String, dynamic> data) {
+    final scheduledAt = _scheduledAt(data);
+    final action = data['actualResponseTime'];
+    final status = (data['status'] as String? ?? 'confirmed').toLowerCase();
+    final latency = (data['responseLatencyMinutes'] as int?) ?? 0;
+
+    String actionTime = '—';
+    if (action is DateTime) {
+      actionTime = DateFormat.jm().format(action);
+    }
+
+    return {
+      'medication': data['medicationName']?.toString() ?? '',
+      'condition': data['condition']?.toString() ?? '',
+      'scheduled': scheduledAt != null ? DateFormat.jm().format(scheduledAt) : '—',
+      'actionTime': actionTime,
+      'status': status,
+      'dateGroup': scheduledAt != null ? _dateGroupFor(scheduledAt) : 'Earlier',
+      'timing': latency > 0 ? 'late' : 'on_time',
+      'lateBy': latency > 0 ? '+$latency min' : 'On time',
+    };
+  }
+
+  DailyDoseItem _entryToDailyDose(Map<String, dynamic> data) {
+    final scheduledAt = _scheduledAt(data) ?? DateTime.now();
+    final status = (data['status'] as String? ?? 'pending').toLowerCase();
+    final actual = data['actualResponseTime'];
+    String? actionLabel;
+    if (actual is DateTime) {
+      actionLabel = DateFormat.jm().format(actual);
+    }
+
+    DateTime? snoozeUntil;
+    final snooze = data['snoozeUntil'];
+    if (snooze is DateTime) {
+      snoozeUntil = snooze;
+    }
+
+    return DailyDoseItem(
+      medicationId: data['medicationId']?.toString() ?? '',
+      medicationName: data['medicationName']?.toString() ?? 'Medication',
+      dosage: data['dosage']?.toString() ?? '',
+      condition: data['condition']?.toString() ?? '',
+      scheduledLabel: data['scheduledLabel']?.toString() ?? DateFormat.jm().format(scheduledAt),
+      scheduledAt: scheduledAt,
+      status: status == 'pending' && scheduledAt.isAfter(DateTime.now()) ? 'upcoming' : status,
+      actionLabel: actionLabel,
+      mealTiming: data['mealTiming']?.toString() ?? '',
+      latencyMinutes: data['responseLatencyMinutes'] as int?,
+      logId: data['logId']?.toString(),
+      snoozeUntil: snoozeUntil,
+    );
+  }
+
+  bool _isToday(DateTime date) {
+    final now = DateTime.now();
+    return date.year == now.year && date.month == now.month && date.day == now.day;
   }
 
   @override
   Widget build(BuildContext context) {
-    final userId = FirebaseAuth.instance.currentUser!.uid;
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _doseHistoryStream,
+      builder: (context, snapshot) {
+        if (snapshot.hasData && !identical(snapshot.data, _lastStreamSnapshot)) {
+          _lastStreamSnapshot = snapshot.data;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            _allLogs = snapshot.data!;
+            _applyFilter();
+          });
+        }
 
-    return StreamBuilder<List<Map<String, String>>>(
-      stream: FirebaseFirestore.instance
-          .collection('reminder_logs')
-          .where('userId', isEqualTo: userId)
-          .orderBy('scheduledTime', descending: true)
-          .snapshots()
-          .map((snapshot) => snapshot.docs.map((doc) {
-                final data = doc.data();
-                final scheduled = data['scheduledTime'] as Timestamp?;
-                final action = data['actualResponseTime'] as Timestamp?;
-                final status = (data['status'] as String? ?? 'confirmed').toLowerCase();
-                final latency = (data['responseLatencyMinutes'] as int?) ?? 0;
+        final reminders = _filteredLogs.map(_entryToUiMap).toList();
+        final todayDoses = _filteredLogs
+            .where((e) {
+              final scheduledAt = _scheduledAt(e);
+              return scheduledAt != null && _isToday(scheduledAt);
+            })
+            .map(_entryToDailyDose)
+            .toList();
 
-                final scheduledAt = scheduled?.toDate();
-                final now = DateTime.now();
-                final today = DateTime(now.year, now.month, now.day);
-                final yday = today.subtract(const Duration(days: 1));
-                final day = scheduledAt != null ? DateTime(scheduledAt.year, scheduledAt.month, scheduledAt.day) : null;
-
-                String dateGroup;
-                if (day == null) {
-                  dateGroup = 'Earlier';
-                } else if (day == today) {
-                  dateGroup = 'Today';
-                } else if (day == yday) {
-                  dateGroup = 'Yesterday';
-                } else {
-                  dateGroup = DateFormat.yMMMMd().format(day);
-                }
-
-                return <String, String>{
-                  'medication': data['medicationName']?.toString() ?? '',
-                  'condition': data['condition']?.toString() ?? '',
-                  'scheduled': scheduledAt != null ? DateFormat.jm().format(scheduledAt) : '—',
-                  'actionTime': action != null ? DateFormat.jm().format(action.toDate()) : '—',
-                  'status': status,
-                  'dateGroup': dateGroup,
-                  'timing': latency > 0 ? 'late' : 'on_time',
-                  'lateBy': latency > 0 ? '+$latency min' : 'On time',
-                };
-              }).toList()),
-      builder: (context, historySnap) {
-        return StreamBuilder<List<DailyDoseItem>>(
-          stream: ReminderService().watchTodayDoses(userId),
-          builder: (context, todaySnap) {
-            final reminders = _applySearch(historySnap.data ?? []);
-            final todayDoses = todaySnap.data ?? [];
-
-            return Scaffold(
+        return Scaffold(
               backgroundColor: AppColors.background,
               appBar: AppBar(
                 leading: _searchOpen
                     ? IconButton(
                         icon: const Icon(Icons.close),
-                        onPressed: () => setState(() {
-                          _searchOpen = false;
-                          _searchCtrl.clear();
-                        }),
+                        onPressed: () {
+                          setState(() => _searchOpen = false);
+                          _searchController.clear();
+                        },
                       )
                     : IconButton(
                         icon: const Icon(Icons.arrow_back_ios_new, size: 20),
@@ -108,9 +180,8 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
                       ),
                 title: _searchOpen
                     ? TextField(
-                        controller: _searchCtrl,
+                        controller: _searchController,
                         autofocus: true,
-                        onChanged: (_) => setState(() {}),
                         decoration: const InputDecoration(
                           hintText: 'Search reminders...',
                           border: InputBorder.none,
@@ -151,8 +222,6 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
                 ],
               ),
             );
-          },
-        );
       },
     );
   }
@@ -749,6 +818,8 @@ class _HistoryCard extends StatelessWidget {
         return 'Snoozed at: ${data['actionTime'] ?? '—'}';
       case 'skipped':
         return 'Skipped at: ${data['actionTime'] ?? '—'}';
+      case 'pending':
+        return 'Awaiting response';
       default:
         return 'Taken: ${data['actionTime'] ?? '—'}';
     }
@@ -762,6 +833,8 @@ class _HistoryCard extends StatelessWidget {
         return 'Snoozed';
       case 'skipped':
         return 'Skipped';
+      case 'pending':
+        return 'Pending';
       case 'confirmed':
         final timing = data['timing'];
         if (timing == 'on_time') return 'On time';
@@ -797,6 +870,14 @@ class _HistoryCard extends StatelessWidget {
           iconColor: Color(0xFF757575),
           badgeBg: Color(0xFFEEEEEE),
           badgeText: Color(0xFF757575),
+        );
+      case 'pending':
+        return const _StatusStyle(
+          icon: Icons.schedule,
+          iconBg: Color(0xFFE3F2FD),
+          iconColor: Color(0xFF1565C0),
+          badgeBg: Color(0xFFE3F2FD),
+          badgeText: Color(0xFF1565C0),
         );
       default:
         return const _StatusStyle(

@@ -12,6 +12,7 @@ import 'package:carelanka_app/services/medication_service.dart';
 import 'package:carelanka_app/services/checkup_service.dart';
 import 'package:carelanka_app/services/reminder_service.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuth;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -221,7 +222,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         children: [
           _emptyOverview(),
           const SizedBox(height: 14),
-          _emptyNextReminder(),
+          _noReminderCard(),
         ],
       );
     }
@@ -254,7 +255,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 final now = DateTime.now();
                 final totalDoses = MedicationScheduleHelper.totalDosesToday(activeMeds, now);
                 final taken = takenSnap.data ?? 0;
-                final nextDose = MedicationScheduleHelper.nextDoseToday(activeMeds, now);
                 final hasMeds = activeMeds.isNotEmpty;
 
                 return FutureBuilder<AdherenceResult>(
@@ -273,16 +273,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             adherence: adherence,
                           ),
                         const SizedBox(height: 14),
-                        if (nextDose != null)
-                          _nextReminderCard(
-                            timeLabel: nextDose.label,
-                            medicationLabel: [
-                              nextDose.name,
-                              if (nextDose.dosage.isNotEmpty) nextDose.dosage,
-                            ].join(' '),
-                          )
-                        else
-                          _emptyNextReminder(),
+                        FutureBuilder<Map<String, dynamic>?>(
+                          future: _getNextReminder(userId),
+                          builder: (context, snapshot) {
+                            final next = snapshot.data;
+                            if (next == null) {
+                              return _noReminderCard();
+                            }
+                            return _nextReminderCard(
+                              medicationName: next['name'] as String,
+                              time: next['time'] as String,
+                              condition: next['condition'] as String,
+                            );
+                          },
+                        ),
                       ],
                     );
                   },
@@ -341,7 +345,57 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _emptyNextReminder() {
+  Future<Map<String, dynamic>?> _getNextReminder(String userId) async {
+    try {
+      final now = DateTime.now();
+      final snap = await FirebaseFirestore.instance
+          .collection('medications')
+          .where('userId', isEqualTo: userId)
+          .where('active', isEqualTo: true)
+          .get();
+
+      final upcoming = <Map<String, dynamic>>[];
+
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final times = List<String>.from(
+            data['scheduledTimes'] as List? ?? []);
+        final name = data['name'] as String? ?? '';
+        final condition = data['condition'] as String? ?? '';
+
+        for (final timeStr in times) {
+          final parts = timeStr.split(':');
+          if (parts.length < 2) continue;
+          var hour = int.tryParse(parts[0]) ?? 0;
+          final minPart = parts[1].replaceAll(RegExp(r'[^0-9]'), '');
+          final minute = int.tryParse(minPart) ?? 0;
+          if (timeStr.toLowerCase().contains('pm') && hour < 12) {
+            hour += 12;
+          }
+          final scheduled = DateTime(
+              now.year, now.month, now.day, hour, minute);
+          if (scheduled.isAfter(now)) {
+            upcoming.add({
+              'name': name,
+              'condition': condition,
+              'time': timeStr,
+              'scheduledAt': scheduled,
+            });
+          }
+        }
+      }
+
+      if (upcoming.isEmpty) return null;
+      upcoming.sort((a, b) =>
+          (a['scheduledAt'] as DateTime)
+              .compareTo(b['scheduledAt'] as DateTime));
+      return upcoming.first;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Widget _noReminderCard() {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -459,9 +513,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _nextReminderCard({
-    required String timeLabel,
-    required String medicationLabel,
+    required String medicationName,
+    required String time,
+    required String condition,
   }) {
+    final medicationLabel = [
+      medicationName,
+      if (condition.isNotEmpty) condition,
+    ].join(' · ');
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -477,7 +536,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 const Text('Next Reminder', style: TextStyle(color: Colors.white70, fontSize: 13)),
                 const SizedBox(height: 6),
                 Text(
-                  timeLabel,
+                  time,
                   style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700),
                 ),
                 if (medicationLabel.isNotEmpty) ...[
