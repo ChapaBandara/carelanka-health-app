@@ -6,7 +6,7 @@
 class EmailJsConfig {
   EmailJsConfig._();
 
-  static const serviceId = 'service_stj6h2s';
+  static const serviceId = 'service_k5sq7d6';
   static const templateId = 'template_xmy2vaf';
   static const publicKey = 'wW5bly7vMWh_zi8_S';
 
