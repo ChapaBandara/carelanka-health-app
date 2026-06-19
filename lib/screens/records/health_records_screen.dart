@@ -43,8 +43,10 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
 
     final diagnoses = <String>{'all'};
     for (final r in allRecords) {
-      final d = (r['diagnosis'] ?? '').trim();
-      if (d.isNotEmpty) diagnoses.add(d);
+      final diagnosis = (r['diagnosis'] ?? '').trim();
+      final condition = (r['condition'] ?? r['linkedIllness'] ?? '').trim();
+      if (diagnosis.isNotEmpty) diagnoses.add(diagnosis);
+      if (condition.isNotEmpty) diagnoses.add(condition);
     }
 
     showModalBottomSheet<void>(
@@ -142,7 +144,7 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
                     const Text('Diagnosis / Condition', style: TextStyle(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
-                      value: diagnosis,
+                      initialValue: diagnosis,
                       decoration: InputDecoration(
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),

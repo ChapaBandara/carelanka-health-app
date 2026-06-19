@@ -1,6 +1,8 @@
 import 'dart:convert';
 
+import 'package:carelanka_app/core/firebase/firebase_collections.dart';
 import 'package:carelanka_app/services/medication_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
 
@@ -29,7 +31,18 @@ class ConflictResult {
   /// Non-null when the medication triggers a known allergy.
   final String? allergyMessage;
 
-  const ConflictResult({this.conflictMessage, this.allergyMessage});
+  /// Exact names of current user medications that conflict with the new drug.
+  final List<String> conflictingMedicationNames;
+
+  /// Exact allergies matched by the new medication name.
+  final List<String> matchedAllergies;
+
+  const ConflictResult({
+    this.conflictMessage,
+    this.allergyMessage,
+    this.conflictingMedicationNames = const [],
+    this.matchedAllergies = const [],
+  });
 
   bool get hasWarning => conflictMessage != null || allergyMessage != null;
 }
@@ -160,15 +173,33 @@ class DrugInteractionService {
     final medName = newMedicationName.trim().toLowerCase();
     if (medName.isEmpty) return const ConflictResult();
 
-    // Fetch the user's current active medication names once.
-    final existingMeds =
-        await MedicationService().watchMedications(userId).first;
-    final existingNames = existingMeds
-        .map((m) => (m['name'] as String? ?? '').trim().toLowerCase())
-        .where((n) => n.isNotEmpty)
+    // Fetch only active medications that belong to ongoing illnesses.
+    final illnessSnap = await FirebaseFirestore.instance
+        .collection(FirebaseCollections.illnesses)
+        .where('userId', isEqualTo: userId)
+        .get();
+    final activeIllnessIds = illnessSnap.docs
+        .where((d) => (d.data()['status'] as String? ?? 'active') != 'completed')
+        .map((d) => d.id)
         .toSet();
 
+    final existingMeds = await MedicationService().watchMedications(userId).first;
+    final activeMeds = existingMeds.where((m) {
+      if (m['active'] != true) return false;
+      final illnessId = m['illnessId'] as String? ?? '';
+      return illnessId.isNotEmpty && activeIllnessIds.contains(illnessId);
+    }).toList();
+
+    final existingNameMap = <String, String>{};
+    for (final med in activeMeds) {
+      final original = (med['name'] as String? ?? '').trim();
+      if (original.isEmpty) continue;
+      existingNameMap[original.toLowerCase()] = original;
+    }
+    final existingNames = existingNameMap.keys.toSet();
+
     final conflictMessages = <String>[];
+    final conflictingMedications = <String>{};
     // Track which conflicting drug names we've already reported to avoid
     // showing the same conflict from both the API and local JSON.
     final reportedDrugs = <String>{};
@@ -196,7 +227,7 @@ class DrugInteractionService {
           // Look for d2 among existing meds.
           for (final existing in existingNames) {
             if (existing.contains(d2) || d2.contains(existing)) {
-              conflictingApiDrug = interaction.drug2Name;
+              conflictingApiDrug = existingNameMap[existing] ?? interaction.drug2Name;
               break;
             }
           }
@@ -204,7 +235,7 @@ class DrugInteractionService {
           // Look for d1 among existing meds.
           for (final existing in existingNames) {
             if (existing.contains(d1) || d1.contains(existing)) {
-              conflictingApiDrug = interaction.drug1Name;
+              conflictingApiDrug = existingNameMap[existing] ?? interaction.drug1Name;
               break;
             }
           }
@@ -214,6 +245,7 @@ class DrugInteractionService {
           final normalised = conflictingApiDrug.toLowerCase();
           if (!reportedDrugs.contains(normalised)) {
             reportedDrugs.add(normalised);
+            conflictingMedications.add(conflictingApiDrug);
             final capitalized =
                 '${conflictingApiDrug[0].toUpperCase()}${conflictingApiDrug.substring(1)}';
             final desc = interaction.description.isNotEmpty
@@ -240,15 +272,19 @@ class DrugInteractionService {
         final d2 = (map['drug2'] as String).toLowerCase();
 
         final hitsNew = medName.contains(d1) || medName.contains(d2);
-        final hitsExisting =
-            existingNames.any((n) => n.contains(d1) || n.contains(d2));
+        final matchingExisting = existingNames.where((n) => n.contains(d1) || n.contains(d2)).toList();
+        final hitsExisting = matchingExisting.isNotEmpty;
 
         if (hitsNew && hitsExisting) {
           final other = medName.contains(d1) ? d2 : d1;
           if (!reportedDrugs.contains(other)) {
             reportedDrugs.add(other);
+            final matchedName = matchingExisting.isNotEmpty
+                ? (existingNameMap[matchingExisting.first] ?? other)
+                : other;
+            conflictingMedications.add(matchedName);
             conflictMessages.add(
-              'Conflicts with: ${other[0].toUpperCase()}${other.substring(1)}.'
+              'Conflicts with: ${matchedName[0].toUpperCase()}${matchedName.substring(1)}.'
               ' Please consult your doctor.',
             );
           }
@@ -262,6 +298,7 @@ class DrugInteractionService {
     // Step 3 — Allergy check (always local JSON)
     // -----------------------------------------------------------------------
     String? allergyMessage;
+    final matchedAllergies = <String>[];
     try {
       final allergyRaw =
           await rootBundle.loadString('assets/data/allergy_map.json');
@@ -274,9 +311,14 @@ class DrugInteractionService {
             .map((e) => e.toString().toLowerCase())
             .toList();
         if (triggers.any((t) => medName.contains(t))) {
-          allergyMessage = 'You are allergic to: ${map['allergy']}';
-          break;
+          final allergy = map['allergy']?.toString() ?? '';
+          if (allergy.isNotEmpty) {
+            matchedAllergies.add(allergy);
+          }
         }
+      }
+      if (matchedAllergies.isNotEmpty) {
+        allergyMessage = 'You are allergic to: ${matchedAllergies.join(', ')}';
       }
     } catch (_) {
       // Asset error — ignore.
@@ -286,6 +328,8 @@ class DrugInteractionService {
       conflictMessage:
           conflictMessages.isNotEmpty ? conflictMessages.join('\n') : null,
       allergyMessage: allergyMessage,
+      conflictingMedicationNames: conflictingMedications.toList()..sort(),
+      matchedAllergies: matchedAllergies,
     );
   }
 }

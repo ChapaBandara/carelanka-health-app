@@ -45,6 +45,8 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
 
   String? _conflictMessage;
   String? _allergyMessage;
+  List<String> _conflictingMedicationNames = [];
+  List<String> _matchedAllergyNames = [];
   List<String> _userAllergies = [];
 
   static const _categories = ['Tablet', 'Capsule', 'Syrup', 'Injection', 'Cream', 'Drops'];
@@ -503,6 +505,8 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
       setState(() {
         _conflictMessage = result.conflictMessage;
         _allergyMessage = result.allergyMessage;
+        _conflictingMedicationNames = result.conflictingMedicationNames;
+        _matchedAllergyNames = result.matchedAllergies;
       });
       if (result.hasWarning) {
         _showConflictOverlay(
@@ -553,13 +557,17 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
         if (_conflictMessage != null || _allergyMessage != null) {
           try {
             final message = [
-              if (_conflictMessage != null) _conflictMessage!,
-              if (_allergyMessage != null) _allergyMessage!,
+              ?_conflictMessage,
+              ?_allergyMessage,
             ].join('\n');
             await FirebaseFirestore.instance.collection('alerts').add({
               'userId': userId,
               'type': 'drug',
               'message': message,
+              'newMedicationName': _name.text.trim(),
+              'newMedicationDosage': _dose.text.trim(),
+              'conflictingMedicationNames': _conflictingMedicationNames,
+              'matchedAllergies': _matchedAllergyNames,
               'read': false,
               'createdAt': Timestamp.fromDate(DateTime.now()),
             });
@@ -583,13 +591,17 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
         if (_conflictMessage != null || _allergyMessage != null) {
           try {
             final message = [
-              if (_conflictMessage != null) _conflictMessage!,
-              if (_allergyMessage != null) _allergyMessage!,
+              ?_conflictMessage,
+              ?_allergyMessage,
             ].join('\n');
             await FirebaseFirestore.instance.collection('alerts').add({
               'userId': userId,
               'type': 'drug',
               'message': message,
+              'newMedicationName': _name.text.trim(),
+              'newMedicationDosage': _dose.text.trim(),
+              'conflictingMedicationNames': _conflictingMedicationNames,
+              'matchedAllergies': _matchedAllergyNames,
               'read': false,
               'createdAt': Timestamp.fromDate(DateTime.now()),
             });

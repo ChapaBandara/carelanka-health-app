@@ -106,7 +106,10 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
 
   DailyDoseItem _entryToDailyDose(Map<String, dynamic> data) {
     final scheduledAt = _scheduledAt(data) ?? DateTime.now();
-    final status = (data['status'] as String? ?? 'pending').toLowerCase();
+    var status = (data['status'] as String? ?? 'pending').toLowerCase();
+    if (status == 'pending') {
+      status = scheduledAt.isBefore(DateTime.now()) ? 'missed' : 'upcoming';
+    }
     final actual = data['actualResponseTime'];
     String? actionLabel;
     if (actual is DateTime) {
@@ -126,18 +129,13 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
       condition: data['condition']?.toString() ?? '',
       scheduledLabel: data['scheduledLabel']?.toString() ?? DateFormat.jm().format(scheduledAt),
       scheduledAt: scheduledAt,
-      status: status == 'pending' && scheduledAt.isAfter(DateTime.now()) ? 'upcoming' : status,
+      status: status,
       actionLabel: actionLabel,
       mealTiming: data['mealTiming']?.toString() ?? '',
       latencyMinutes: data['responseLatencyMinutes'] as int?,
       logId: data['logId']?.toString(),
       snoozeUntil: snoozeUntil,
     );
-  }
-
-  bool _isToday(DateTime date) {
-    final now = DateTime.now();
-    return date.year == now.year && date.month == now.month && date.day == now.day;
   }
 
   @override
@@ -155,13 +153,7 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
         }
 
         final reminders = _filteredLogs.map(_entryToUiMap).toList();
-        final todayDoses = _filteredLogs
-            .where((e) {
-              final scheduledAt = _scheduledAt(e);
-              return scheduledAt != null && _isToday(scheduledAt);
-            })
-            .map(_entryToDailyDose)
-            .toList();
+        final historyDoses = _filteredLogs.map(_entryToDailyDose).toList();
 
         return Scaffold(
               backgroundColor: AppColors.background,
@@ -216,9 +208,9 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
                 controller: _tab,
                 children: [
                   _AllTab(reminders: reminders),
-                  _ConfirmedTab(doses: todayDoses),
-                  _MissedTab(doses: todayDoses.where((d) => d.status == 'missed').toList()),
-                  _SnoozedTab(doses: todayDoses.where((d) => d.status == 'snoozed').toList()),
+                  _ConfirmedTab(doses: historyDoses),
+                  _MissedTab(doses: historyDoses.where((d) => d.status == 'missed' || d.status == 'skipped').toList()),
+                  _SnoozedTab(doses: historyDoses.where((d) => d.status == 'snoozed').toList()),
                 ],
               ),
             );
@@ -291,8 +283,8 @@ class _ConfirmedTab extends StatelessWidget {
     if (total == 0) {
       return const EmptyListPlaceholder(
         icon: Icons.check_circle_outline,
-        title: 'No doses scheduled today',
-        subtitle: 'Add medications to track your daily schedule.',
+        title: 'No doses found',
+        subtitle: 'Add medications to start tracking your reminders.',
       );
     }
 
@@ -337,11 +329,11 @@ class _ConfirmedTab extends StatelessWidget {
                         fontSize: 17,
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'You have taken $taken out of $total scheduled doses today.',
-                      style: const TextStyle(color: AppColors.textGrey, fontSize: 13, height: 1.35),
-                    ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'You have taken $taken out of $total scheduled doses in this view.',
+                          style: const TextStyle(color: AppColors.textGrey, fontSize: 13, height: 1.35),
+                        ),
                   ],
                 ),
               ),
@@ -397,8 +389,8 @@ class _MissedTab extends StatelessWidget {
     if (doses.isEmpty) {
       return const EmptyListPlaceholder(
         icon: Icons.check_circle_outline,
-        title: 'No missed doses today',
-        subtitle: 'You are on track with your medication schedule.',
+        title: 'No missed doses',
+        subtitle: 'You are on track for the selected reminder history.',
       );
     }
 
@@ -426,8 +418,8 @@ class _MissedTab extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'You have ${doses.length} missed medication${doses.length == 1 ? '' : 's'} today. Please take them as soon as possible or mark them as skipped.',
-                      style: TextStyle(color: AppColors.errorRed.withValues(alpha: 0.85), fontSize: 13, height: 1.4),
+                          'You have ${doses.length} missed medication${doses.length == 1 ? '' : 's'} in this view. Please take them as soon as possible or mark them as skipped.',
+                          style: TextStyle(color: AppColors.errorRed.withValues(alpha: 0.85), fontSize: 13, height: 1.4),
                     ),
                   ],
                 ),
@@ -436,14 +428,42 @@ class _MissedTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 18),
-        const _SectionHeader('MISSED TODAY'),
-        const SizedBox(height: 10),
-        ...doses.map((d) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _ActionDoseCard(dose: d, accent: AppColors.errorRed),
-            )),
+        ..._groupedDailyMissed(doses),
       ],
     );
+  }
+
+  List<Widget> _groupedDailyMissed(List<DailyDoseItem> doses) {
+    final groups = <String, List<DailyDoseItem>>{};
+    for (final dose in doses) {
+      final key = _dayLabel(dose.scheduledAt);
+      groups.putIfAbsent(key, () => []).add(dose);
+    }
+
+    return groups.entries.map((entry) {
+      final items = entry.value..sort((a, b) => b.scheduledAt.compareTo(a.scheduledAt));
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionHeader(entry.key),
+          const SizedBox(height: 10),
+          ...items.map((d) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _ActionDoseCard(dose: d, accent: AppColors.errorRed),
+              )),
+          const SizedBox(height: 6),
+        ],
+      );
+    }).toList();
+  }
+
+  String _dayLabel(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(date.year, date.month, date.day);
+    if (day == today) return 'MISSED TODAY';
+    if (day == today.subtract(const Duration(days: 1))) return 'MISSED YESTERDAY';
+    return DateFormat('EEE, d MMM yyyy').format(day).toUpperCase();
   }
 }
 

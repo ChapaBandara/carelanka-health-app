@@ -1,7 +1,10 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
+import 'package:carelanka_app/core/firebase/auth_notifications.dart';
+import 'package:carelanka_app/services/auth_service.dart';
 import 'package:carelanka_app/services/email_otp_service.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
+import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -15,6 +18,7 @@ class VerifyResetCodeScreen extends StatefulWidget {
 class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
   final _controllers = List.generate(6, (_) => TextEditingController());
   final _nodes = List.generate(6, (_) => FocusNode());
+  final _authService = AuthService();
   bool _verifying = false;
 
   @override
@@ -67,30 +71,35 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
     try {
       await EmailOtpService.instance.verifyOtpCode(email: _email, code: _code);
       if (!mounted) return;
-      Navigator.pushNamed(context, AppRoutes.changePassword);
+      await _authService.sendPasswordResetEmail(_email);
+      if (!mounted) return;
+      await showPasswordResetLinkSentNotification(context);
+      if (!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        AppRoutes.login,
+        (route) => false,
+      );
     } on OtpIncorrectException {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Invalid or expired code'),
-          backgroundColor: Colors.red,
-        ),
+      await showCareLankaErrorNotification(
+        context,
+        title: 'Verification Failed',
+        subtitle: 'The code is invalid or expired. Please try again.',
       );
     } on OtpExpiredException {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Invalid or expired code'),
-          backgroundColor: Colors.red,
-        ),
+      await showCareLankaErrorNotification(
+        context,
+        title: 'Verification Failed',
+        subtitle: 'The code is invalid or expired. Please request a new one.',
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString()),
-          backgroundColor: Colors.red,
-        ),
+      await showCareLankaErrorNotification(
+        context,
+        title: 'Verification Failed',
+        subtitle: e.toString().replaceFirst('Exception: ', ''),
       );
     } finally {
       if (mounted) setState(() => _verifying = false);

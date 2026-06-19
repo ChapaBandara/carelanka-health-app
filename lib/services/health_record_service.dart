@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:carelanka_app/core/firebase/firebase_collections.dart';
@@ -47,6 +46,7 @@ class HealthRecordService {
     }
     final doctor = d['doctorName'] as String? ?? '';
     final diagnosis = d['diagnosis'] as String? ?? '';
+    final condition = d['condition'] as String? ?? d['linkedIllness'] as String? ?? '';
     final docType = d['documentType'] as String? ?? 'Record';
     final title = diagnosis.isNotEmpty ? '$diagnosis — $doctor' : 'Dr. $doctor — $shortDate';
     return {
@@ -57,6 +57,7 @@ class HealthRecordService {
       'doctor': doctor,
       'place': d['hospital'] as String? ?? '',
       'diagnosis': diagnosis,
+      'condition': condition,
       'notes': d['notes'] as String? ?? '',
       'tag': docType,
       'documentType': docType,
@@ -75,18 +76,21 @@ class HealthRecordService {
     String diagnosisQuery = '',
     bool attachOnly = false,
   }) {
+    final safeFrom = (from != null && to != null && from.isAfter(to)) ? to : from;
+    final safeTo = (from != null && to != null && from.isAfter(to)) ? from : to;
+
     return records.where((r) {
-      if (from != null || to != null) {
+      if (safeFrom != null || safeTo != null) {
         final millis = int.tryParse(r['visitDateMillis'] ?? '') ?? 0;
         if (millis == 0) return false;
         final visit = DateTime.fromMillisecondsSinceEpoch(millis);
         final day = DateTime(visit.year, visit.month, visit.day);
-        if (from != null) {
-          final fromDay = DateTime(from.year, from.month, from.day);
+        if (safeFrom != null) {
+          final fromDay = DateTime(safeFrom.year, safeFrom.month, safeFrom.day);
           if (day.isBefore(fromDay)) return false;
         }
-        if (to != null) {
-          final toDay = DateTime(to.year, to.month, to.day);
+        if (safeTo != null) {
+          final toDay = DateTime(safeTo.year, safeTo.month, safeTo.day);
           if (day.isAfter(toDay)) return false;
         }
       }
@@ -96,8 +100,11 @@ class HealthRecordService {
       if (dq.isNotEmpty && !doctor.contains(dq)) return false;
 
       final diagnosis = (r['diagnosis'] ?? '').toLowerCase();
+      final condition = (r['condition'] ?? '').toLowerCase();
       final diagQ = diagnosisQuery.trim().toLowerCase();
-      if (diagQ.isNotEmpty && diagQ != 'all' && !diagnosis.contains(diagQ)) return false;
+      if (diagQ.isNotEmpty && diagQ != 'all') {
+        if (!diagnosis.contains(diagQ) && !condition.contains(diagQ)) return false;
+      }
 
       if (attachOnly) {
         final url = r['documentUrl'] ?? '';
@@ -194,19 +201,19 @@ class HealthRecordService {
 
     try {
       final ref = _storage.ref().child(path);
+      final contentType = switch (safeExt) {
+        'pdf' => 'application/pdf',
+        'png' => 'image/png',
+        'webp' => 'image/webp',
+        _ => 'image/jpeg',
+      };
       await ref.putFile(
         documentFile,
-        SettableMetadata(contentType: safeExt == 'pdf' ? 'application/pdf' : 'image/jpeg'),
+        SettableMetadata(contentType: contentType),
       );
       return await ref.getDownloadURL();
-    } catch (_) {
-      try {
-        final bytes = await documentFile.readAsBytes();
-        final encoded = base64Encode(bytes);
-        return 'data:image/jpeg;base64,$encoded';
-      } catch (_) {
-        return null;
-      }
+    } catch (e) {
+      throw Exception('Document upload failed. Please try a smaller JPG/PNG/PDF file. ($e)');
     }
   }
 }

@@ -30,7 +30,7 @@ class ReminderService {
 
     void emit() {
       if (lastMeds == null || lastIllnesses == null || lastLogs == null) return;
-      controller.add(_buildAllDoseHistory(lastMeds!, lastIllnesses!, lastLogs!));
+      controller.add(_buildFullDoseHistory(lastMeds!, lastIllnesses!, lastLogs!));
     }
 
     final medSub = _firestore
@@ -67,15 +67,14 @@ class ReminderService {
     return controller.stream;
   }
 
-  List<Map<String, dynamic>> _buildAllDoseHistory(
+  List<Map<String, dynamic>> _buildFullDoseHistory(
     QuerySnapshot<Map<String, dynamic>> medSnap,
     QuerySnapshot<Map<String, dynamic>> illnessSnap,
     QuerySnapshot<Map<String, dynamic>> logSnap,
   ) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final windowStart = today.subtract(const Duration(days: 7));
-    final windowEnd = today.add(const Duration(days: 1));
+    final endDayExclusive = today.add(const Duration(days: 1));
 
     final illnessNames = <String, String>{};
     final activeIllnessIds = <String>{};
@@ -97,13 +96,24 @@ class ReminderService {
       final scheduled = d['scheduledTime'];
       if (scheduled is! Timestamp) continue;
       final scheduledAt = scheduled.toDate();
-      if (scheduledAt.isBefore(windowStart) || !scheduledAt.isBefore(windowEnd)) continue;
 
       final medId = d['medicationId'] as String? ?? '';
       loggedKeys.add(doseKey(medId, scheduledAt));
 
       var status = (d['status'] as String? ?? 'confirmed').toLowerCase();
       if (status == 'taken') status = 'confirmed';
+
+      DateTime? actualResponseTime;
+      final actual = d['actualResponseTime'];
+      if (actual is Timestamp) {
+        actualResponseTime = actual.toDate();
+      }
+
+      DateTime? snoozeUntil;
+      final snooze = d['snoozeUntil'];
+      if (snooze is Timestamp) {
+        snoozeUntil = snooze.toDate();
+      }
 
       results.add({
         ...d,
@@ -112,31 +122,43 @@ class ReminderService {
         'medicationName': d['medicationName'] as String? ?? d['name'] as String? ?? 'Medication',
         'condition': d['condition'] as String? ?? '',
         'scheduledTime': scheduledAt,
+        'actualResponseTime': actualResponseTime,
+        'snoozeUntil': snoozeUntil,
         'status': status,
       });
     }
 
-    for (var dayOffset = 7; dayOffset >= 0; dayOffset--) {
-      final day = today.subtract(Duration(days: dayOffset));
-      for (final doc in medSnap.docs) {
-        final med = doc.data();
-        if (med['active'] != true) continue;
-        final illnessId = med['illnessId'] as String? ?? '';
-        if (!activeIllnessIds.contains(illnessId)) continue;
+    for (final doc in medSnap.docs) {
+      final med = doc.data();
+      if (med['active'] != true) continue;
+      final illnessId = med['illnessId'] as String? ?? '';
+      if (!activeIllnessIds.contains(illnessId)) continue;
 
-        final medId = doc.id;
-        final name = med['name'] as String? ?? 'Medication';
-        final dosage = med['dosage'] as String? ?? '';
-        final condition = illnessNames[illnessId] ?? '';
-        final times = med['scheduledTimes'] as List? ?? [];
+      final medId = doc.id;
+      final name = med['name'] as String? ?? 'Medication';
+      final dosage = med['dosage'] as String? ?? '';
+      final condition = illnessNames[illnessId] ?? '';
+      final times = med['scheduledTimes'] as List? ?? [];
 
+      final medStartRaw = med['startDate'] ?? med['createdAt'];
+      DateTime medStart = today.subtract(const Duration(days: 30));
+      if (medStartRaw is Timestamp) {
+        medStart = medStartRaw.toDate();
+      } else if (medStartRaw is String) {
+        medStart = DateTime.tryParse(medStartRaw) ?? medStart;
+      }
+      final startDay = DateTime(medStart.year, medStart.month, medStart.day);
+
+      for (var day = startDay; !day.isAfter(today); day = day.add(const Duration(days: 1))) {
         for (final raw in times) {
           final scheduledAt = MedicationScheduleHelper.parseTimeOnDay(raw.toString(), day);
           if (scheduledAt == null) continue;
-          if (scheduledAt.isBefore(windowStart) || !scheduledAt.isBefore(windowEnd)) continue;
+          if (!scheduledAt.isBefore(endDayExclusive)) continue;
 
           final key = doseKey(medId, scheduledAt);
           if (loggedKeys.contains(key)) continue;
+
+          final status = scheduledAt.isBefore(now) ? 'missed' : 'upcoming';
 
           results.add({
             'medicationId': medId,
@@ -145,7 +167,7 @@ class ReminderService {
             'condition': condition,
             'scheduledTime': scheduledAt,
             'scheduledLabel': raw.toString(),
-            'status': 'pending',
+            'status': status,
           });
         }
       }
@@ -418,7 +440,21 @@ class ReminderService {
   /// Returns full dose stats for a period: taken/missed/pending counts and
   /// a per-medication breakdown list, all derived from real reminder logs.
   Future<DoseStats> fetchDoseStats(String userId, {DateTime? start, DateTime? end}) async {
-    final snap = await _col.where('userId', isEqualTo: userId).get();
+    final medSnap = await _firestore
+        .collection(FirebaseCollections.medications)
+        .where('userId', isEqualTo: userId)
+        .get();
+    final illnessSnap = await _firestore
+        .collection(FirebaseCollections.illnesses)
+        .where('userId', isEqualTo: userId)
+        .get();
+    final logSnap = await _col.where('userId', isEqualTo: userId).get();
+
+    final allEntries = _buildFullDoseHistory(
+      medSnap,
+      illnessSnap,
+      logSnap,
+    );
 
     var taken = 0;
     var missed = 0;
@@ -427,25 +463,7 @@ class ReminderService {
     // med name → {taken, missed, pending}
     final medMap = <String, Map<String, int>>{};
 
-    for (final doc in snap.docs) {
-      final d = doc.data();
-
-      // Filter by date range using scheduledTime
-      final scheduled = d['scheduledTime'];
-      if (scheduled is Timestamp) {
-        final dt = scheduled.toDate();
-        if (start != null && dt.isBefore(start)) continue;
-        if (end != null && dt.isAfter(end)) continue;
-      } else {
-        // Fallback: filter by createdAt
-        final created = d['createdAt'];
-        if (created is Timestamp) {
-          final dt = created.toDate();
-          if (start != null && dt.isBefore(start)) continue;
-          if (end != null && dt.isAfter(end)) continue;
-        }
-      }
-
+    for (final d in allEntries) {
       final status = (d['status'] as String? ?? '').toLowerCase();
       final medName = d['medicationName'] as String? ?? d['name'] as String? ?? 'Medication';
 
@@ -867,6 +885,7 @@ class ReminderService {
         try {
           await adherence.decrementStock(medicationId, userId);
         } catch (_) {}
+        return;
 
       case 'snoozed':
         try {
@@ -886,6 +905,7 @@ class ReminderService {
             snoozeDurationMinutes: snoozeDurationMinutes,
           );
         } catch (_) {}
+        return;
 
       case 'skipped':
         try {
@@ -898,6 +918,7 @@ class ReminderService {
             actualResponseTime: now,
           );
         } catch (_) {}
+        return;
     }
   }
 }

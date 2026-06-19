@@ -118,7 +118,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         'averageVisitGapDays': 30,
         'notificationPreferences': UserService.defaultNotificationPreferences(),
         if (isDependent) 'isDependent': true,
-        if (guardianName != null) 'guardianName': guardianName,
+        'guardianName': ?guardianName,
       });
       if (!mounted) return;
       await showRegisterSuccessNotification(context);

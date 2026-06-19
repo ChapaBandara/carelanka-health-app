@@ -64,6 +64,16 @@ class AlertService {
       'type': type,
       'category': category,
       'title': d['message'] as String? ?? '',
+      'newMedicationName': d['newMedicationName'] as String? ?? '',
+      'newMedicationDosage': d['newMedicationDosage'] as String? ?? '',
+      'conflictingMedicationNames': (d['conflictingMedicationNames'] as List?)
+              ?.map((e) => e.toString())
+              .join('|') ??
+          '',
+      'matchedAllergies': (d['matchedAllergies'] as List?)
+              ?.map((e) => e.toString())
+              .join('|') ??
+          '',
       'time': time,
       'accent': accent,
       'tint': tint,

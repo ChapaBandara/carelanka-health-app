@@ -61,8 +61,8 @@ class FamilyService {
       'fullName': fullName,
       'relationship': relationship,
       if (dateOfBirth != null) 'dateOfBirth': Timestamp.fromDate(dateOfBirth),
-      if (gender != null) 'gender': gender,
-      if (bloodType != null) 'bloodType': bloodType,
+      'gender': ?gender,
+      'bloodType': ?bloodType,
       'allergies': allergies,
       'createdAt': Timestamp.fromDate(DateTime.now()),
     });

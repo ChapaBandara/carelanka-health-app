@@ -53,6 +53,57 @@ class _DrugConflictDetailScreenState extends State<DrugConflictDetailScreen> {
   }
 
   ({String name, String dosage}) _medAt(int index, String message) {
+    final alert = _alert(context);
+    final newName = alert?['newMedicationName']?.trim() ?? '';
+    final newDosage = alert?['newMedicationDosage']?.trim() ?? '';
+    final rawConflicting = alert?['conflictingMedicationNames'] ?? '';
+    final rawAllergies = alert?['matchedAllergies'] ?? '';
+    final conflictingNames = rawConflicting
+        .split('|')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    final allergyNames = rawAllergies
+        .split('|')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+
+    if (index == 0 && newName.isNotEmpty) {
+      return (name: newName, dosage: newDosage.isEmpty ? '—' : newDosage);
+    }
+    if (index == 1 && (conflictingNames.isNotEmpty || allergyNames.isNotEmpty)) {
+      final otherName = conflictingNames.isNotEmpty ? conflictingNames.first : allergyNames.first;
+      final dbMatch = _medications.where((m) {
+        final n = (m['name'] as String? ?? '').toLowerCase();
+        final o = otherName.toLowerCase();
+        return n.contains(o) || o.contains(n);
+      }).toList();
+      if (dbMatch.isNotEmpty) {
+        return (
+          name: dbMatch.first['name'] as String? ?? otherName,
+          dosage: dbMatch.first['dosage'] as String? ?? '—',
+        );
+      }
+      return (name: otherName, dosage: '—');
+    }
+
+    if (conflictingNames.isEmpty && allergyNames.isNotEmpty) {
+      final allergyName = allergyNames.first;
+      final dbMatch = _medications.where((m) {
+        final n = (m['name'] as String? ?? '').toLowerCase();
+        final o = allergyName.toLowerCase();
+        return n.contains(o) || o.contains(n);
+      }).toList();
+      if (dbMatch.isNotEmpty) {
+        return (
+          name: dbMatch.first['name'] as String? ?? allergyName,
+          dosage: dbMatch.first['dosage'] as String? ?? '—',
+        );
+      }
+      return (name: allergyName, dosage: '—');
+    }
+
     final conflictMatch = RegExp(r'Conflicts with:\s*([^.]+)', caseSensitive: false).firstMatch(message);
     final allergyMatch = RegExp(r'allergic to:\s*(.+)', caseSensitive: false).firstMatch(message);
     final conflictingName = conflictMatch?.group(1)?.trim().toLowerCase() ?? '';

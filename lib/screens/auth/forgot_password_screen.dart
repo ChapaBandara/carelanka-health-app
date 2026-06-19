@@ -3,10 +3,12 @@ import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/firebase/auth_notifications.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/core/utils/validators.dart';
+import 'package:carelanka_app/services/auth_service.dart';
 import 'package:carelanka_app/services/email_otp_service.dart';
 import 'package:carelanka_app/services/emailjs_send_service.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:carelanka_app/widgets/carelanka/labeled_text_field.dart';
+import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
 import 'package:flutter/material.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
@@ -19,6 +21,7 @@ class ForgotPasswordScreen extends StatefulWidget {
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _emailKey = GlobalKey<FormState>();
   final _email = TextEditingController();
+  final _authService = AuthService();
   final _emailOtpService = EmailOtpService.instance;
   bool _sending = false;
 
@@ -35,25 +38,46 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       final destination = _email.text.trim();
       final generatedOtp = await _emailOtpService.prepareOtp(destination);
 
-      await EmailJsSendService.sendOtpEmail(
-        toEmail: _email.text.trim(),
-        otpCode: generatedOtp.toString(),
-      );
+      var sentViaOtp = false;
+      try {
+        await EmailJsSendService.sendOtpEmail(
+          toEmail: _email.text.trim(),
+          otpCode: generatedOtp.toString(),
+        );
+        sentViaOtp = true;
+      } catch (_) {
+        // Fallback for misconfigured EmailJS service/template IDs.
+        await _authService.sendPasswordResetEmail(destination);
+      }
 
       if (!mounted) return;
-      await showCodeSentToEmailNotification(context);
-      if (!mounted) return;
-      Navigator.pushNamed(
-        context,
-        AppRoutes.verifyResetCode,
-        arguments: {
-          'destination': destination,
-          'email': destination,
-        },
-      );
+      if (sentViaOtp) {
+        await showCodeSentToEmailNotification(context);
+        if (!mounted) return;
+        Navigator.pushNamed(
+          context,
+          AppRoutes.verifyResetCode,
+          arguments: {
+            'destination': destination,
+            'email': destination,
+          },
+        );
+      } else {
+        await showCareLankaSuccessNotification(
+          context,
+          title: 'Reset Email Sent',
+          subtitle: 'Password reset email sent to your inbox. Please check your email.',
+        );
+        if (!mounted) return;
+        Navigator.maybePop(context);
+      }
     } catch (e) {
       if (!mounted) return;
-      showFirebaseErrorSnackBar(context, firebaseErrorMessage(e));
+      await showCareLankaErrorNotification(
+        context,
+        title: 'Reset Failed',
+        subtitle: firebaseErrorMessage(e),
+      );
     } finally {
       if (mounted) setState(() => _sending = false);
     }

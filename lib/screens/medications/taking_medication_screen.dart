@@ -216,7 +216,7 @@ class TakingMedicationScreen extends StatelessWidget {
       medicationName: dose.medicationName,
       condition: dose.condition,
       scheduledTime: dose.scheduledAt,
-      status: 'missed',
+      status: 'skipped',
       existingLogId: dose.logId,
     );
     if (context.mounted) Navigator.pop(context);
