@@ -6,6 +6,7 @@ import 'package:carelanka_app/providers/auth_provider.dart';
 import 'package:carelanka_app/providers/user_data_provider.dart';
 import 'package:carelanka_app/services/family_service.dart';
 import 'package:carelanka_app/services/health_record_service.dart';
+import 'package:carelanka_app/services/illness_service.dart';
 import 'package:carelanka_app/services/medication_service.dart';
 import 'package:carelanka_app/widgets/carelanka/profile_avatar.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
@@ -160,17 +161,31 @@ class ProfileScreen extends StatelessWidget {
                       return StreamBuilder(
                         stream: FamilyService().watchFamilyMaps(userId),
                         builder: (context, famSnap) {
-                          final medCount = (medSnap.data ?? []).where((m) => m['active'] == true).length;
-                          final recCount = recSnap.data?.length ?? 0;
-                          final famCount = famSnap.data?.length ?? 0;
-                          return Row(
-                            children: [
-                              Expanded(child: _statCard(Icons.medication_rounded, const Color(0xFFBBDEFB), '$medCount', 'Active Meds')),
-                              const SizedBox(width: 10),
-                              Expanded(child: _statCard(Icons.folder_open, const Color(0xFFC8E6C9), '$recCount', 'Records')),
-                              const SizedBox(width: 10),
-                              Expanded(child: _statCard(Icons.people_outline, const Color(0xFFFFF59D), '$famCount', 'Family')),
-                            ],
+                          return StreamBuilder(
+                            stream: IllnessService().watchIllnessMaps(userId),
+                            builder: (context, illnessSnap) {
+                              final activeIllnessIds = (illnessSnap.data ?? [])
+                                  .where((i) => i['status'] != 'completed')
+                                  .map((i) => i['illnessId'] ?? '')
+                                  .toSet();
+
+                              final activeMedCount = (medSnap.data ?? [])
+                                  .where((m) =>
+                                      m['active'] == true &&
+                                      activeIllnessIds.contains(m['illnessId'] ?? ''))
+                                  .length;
+                              final recCount = recSnap.data?.length ?? 0;
+                              final famCount = famSnap.data?.length ?? 0;
+                              return Row(
+                                children: [
+                                  Expanded(child: _statCard(Icons.medication_rounded, const Color(0xFFBBDEFB), '$activeMedCount', 'Active Meds')),
+                                  const SizedBox(width: 10),
+                                  Expanded(child: _statCard(Icons.folder_open, const Color(0xFFC8E6C9), '$recCount', 'Records')),
+                                  const SizedBox(width: 10),
+                                  Expanded(child: _statCard(Icons.people_outline, const Color(0xFFFFF59D), '$famCount', 'Family')),
+                                ],
+                              );
+                            },
                           );
                         },
                       );

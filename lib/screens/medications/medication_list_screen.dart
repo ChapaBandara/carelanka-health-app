@@ -2,11 +2,13 @@ import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/design/carelanka_gradients.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
+import 'package:carelanka_app/core/utils/active_uid.dart';
+import 'package:carelanka_app/providers/family_provider.dart';
 import 'package:carelanka_app/services/illness_service.dart';
 import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 /// Matches CareLanka UI "My Medications" — illness hub with Active / Completed tabs.
 class MedicationListScreen extends StatefulWidget {
@@ -20,16 +22,9 @@ class _MedicationListScreenState extends State<MedicationListScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tab = TabController(length: 2, vsync: this);
 
-  // Stream created ONCE in initState so the same object is always passed to
-  // StreamBuilder — preventing any cancel/re-subscribe race conditions.
-  late final Stream<List<Map<String, String>>> _illnessStream;
-  late final String _userId;
-
   @override
   void initState() {
     super.initState();
-    _userId = FirebaseAuth.instance.currentUser!.uid;
-    _illnessStream = IllnessService().watchIllnessMaps(_userId);
     _tab.addListener(() => setState(() {})); // rebuild when tab changes so FAB updates
   }
 
@@ -103,8 +98,11 @@ class _MedicationListScreenState extends State<MedicationListScreen>
             )
           : null,
       // Single StreamBuilder for both tabs — subscribed exactly once
-      body: StreamBuilder<List<Map<String, String>>>(
-        stream: _illnessStream,
+      body: Consumer<FamilyProvider>(
+        builder: (context, _, __) {
+          final userId = context.activeUid;
+          return StreamBuilder<List<Map<String, String>>>(
+        stream: IllnessService().watchIllnessMaps(userId),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -115,16 +113,19 @@ class _MedicationListScreenState extends State<MedicationListScreen>
           return TabBarView(
             controller: _tab,
             children: [
-              _illnessList(illnesses: illnesses, active: true),
-              _illnessList(illnesses: illnesses, active: false),
+              _illnessList(userId: userId, illnesses: illnesses, active: true),
+              _illnessList(userId: userId, illnesses: illnesses, active: false),
             ],
           );
+        },
+      );
         },
       ),
     );
   }
 
   Widget _illnessList({
+    required String userId,
     required List<Map<String, String>> illnesses,
     required bool active,
   }) {
@@ -164,7 +165,7 @@ class _MedicationListScreenState extends State<MedicationListScreen>
             confirmDismiss: (_) =>
                 _confirmDeleteIllness(context, item['name'] ?? 'this illness'),
             onDismissed: (_) =>
-                _deleteIllness(_userId, illnessId, item['name'] ?? 'Illness'),
+                _deleteIllness(userId, illnessId, item['name'] ?? 'Illness'),
             child: _illnessCard(
               item,
               item['initials'] ?? '?',

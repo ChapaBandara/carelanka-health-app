@@ -1,11 +1,13 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/design/carelanka_gradients.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
+import 'package:carelanka_app/core/utils/active_uid.dart';
+import 'package:carelanka_app/providers/family_provider.dart';
 import 'package:carelanka_app/services/allergy_service.dart';
 import 'package:carelanka_app/widgets/carelanka/carelanka_success_sheet.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 /// CareLanka UI #53 — Allergy Profile screen.
 class AllergyScreen extends StatelessWidget {
@@ -24,7 +26,9 @@ class AllergyScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final userId = FirebaseAuth.instance.currentUser!.uid;
+    return Consumer<FamilyProvider>(
+      builder: (context, _, __) {
+    final userId = context.activeUid;
 
     return StreamBuilder<List<Map<String, String>>>(
       stream: AllergyService().watchAllergyMaps(userId),
@@ -85,6 +89,8 @@ class AllergyScreen extends StatelessWidget {
                   ],
                 ),
         );
+      },
+    );
       },
     );
   }
@@ -199,7 +205,7 @@ class AllergyScreen extends StatelessWidget {
                         if (name.text.trim().isEmpty) return;
                         try {
                           await AllergyService().addAllergy(
-                            userId: FirebaseAuth.instance.currentUser!.uid,
+                            userId: context.activeUid,
                             allergyName: name.text.trim(),
                             severity: severity,
                             category: 'General',

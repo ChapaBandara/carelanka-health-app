@@ -1,8 +1,10 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
+import 'package:carelanka_app/core/utils/active_uid.dart';
 import 'package:carelanka_app/core/utils/greeting_helper.dart';
 import 'package:carelanka_app/core/utils/medication_schedule_helper.dart';
 import 'package:carelanka_app/providers/auth_provider.dart';
+import 'package:carelanka_app/providers/family_provider.dart';
 import 'package:carelanka_app/providers/user_data_provider.dart';
 import 'package:carelanka_app/services/adherence_service.dart';
 import 'package:carelanka_app/services/alert_service.dart';
@@ -10,6 +12,7 @@ import 'package:carelanka_app/services/appointment_service.dart';
 import 'package:carelanka_app/services/illness_service.dart';
 import 'package:carelanka_app/services/medication_service.dart';
 import 'package:carelanka_app/services/checkup_service.dart';
+import 'package:carelanka_app/services/notification_service.dart';
 import 'package:carelanka_app/services/reminder_service.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -17,6 +20,7 @@ import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuth;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -42,6 +46,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       AdherenceService().checkAllMedicationsStock(uid).catchError((_) {});
       ReminderService().checkMissedReminders(uid).catchError((_) {});
 
+      _checkAndSendPeriodReport(uid);
+
       // Load checkup banner state — silently, never surfacing errors.
       try {
         final service = CheckupService();
@@ -57,6 +63,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
+  Future<void> _checkAndSendPeriodReport(String userId) async {
+    try {
+      final now = DateTime.now();
+      if (now.hour < 21) return;
+
+      final prefs = await SharedPreferences.getInstance();
+      final lastKey = 'last_report_notif_$userId';
+      final lastSent = prefs.getInt(lastKey) ?? 0;
+      final lastDate = DateTime.fromMillisecondsSinceEpoch(lastSent);
+      if (lastDate.year == now.year &&
+          lastDate.month == now.month &&
+          lastDate.day == now.day) return;
+
+      String period = 'Daily';
+      DateTime start = DateTime(now.year, now.month, now.day);
+
+      if (now.weekday == DateTime.sunday) {
+        period = 'Weekly';
+        start = now.subtract(const Duration(days: 6));
+      }
+      if (now.day == _lastDayOfMonth(now)) {
+        period = 'Monthly';
+        start = DateTime(now.year, now.month, 1);
+      }
+      if (now.month == 12 && now.day == 31) {
+        period = 'Yearly';
+        start = DateTime(now.year, 1, 1);
+      }
+
+      final score = await ReminderService()
+          .calculateAdherencePercent(userId, start: start, end: now);
+
+      await NotificationService.instance
+          .showAdherenceReportNotification(
+        adherenceScore: score,
+        period: period,
+      );
+
+      await prefs.setInt(lastKey, now.millisecondsSinceEpoch);
+    } catch (_) {}
+  }
+
+  int _lastDayOfMonth(DateTime date) =>
+      DateTime(date.year, date.month + 1, 0).day;
+
   @override
   Widget build(BuildContext context) {
     return Consumer2<AuthProvider, UserDataProvider>(
@@ -71,6 +122,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               children: [
+                Consumer<FamilyProvider>(
+                  builder: (context, family, _) {
+                    if (!family.isViewingFamilyMember) return const SizedBox.shrink();
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryTeal,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.swap_horiz, color: Colors.white, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Viewing ${family.activeDisplayName}\'s account',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            onPressed: () {
+                              context.read<FamilyProvider>().switchToSelf();
+                              Navigator.pushNamedAndRemoveUntil(
+                                context,
+                                AppRoutes.dashboard,
+                                (_) => false,
+                              );
+                            },
+                            child: const Text(
+                              'Switch Back',
+                              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -216,8 +316,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _medicationOverviewSection(BuildContext context) {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
-    if (userId == null) {
+    return Consumer<FamilyProvider>(
+      builder: (context, _, __) {
+    final userId = context.activeUid;
+    if (userId.isEmpty) {
       return Column(
         children: [
           _emptyOverview(),
@@ -295,6 +397,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             );
           },
         );
+      },
+    );
       },
     );
   }
@@ -582,8 +686,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _upcomingAppointmentsSection(BuildContext context) {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
-    if (userId == null) {
+    return Consumer<FamilyProvider>(
+      builder: (context, _, __) {
+    final userId = context.activeUid;
+    if (userId.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -617,6 +723,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               _appointmentCard(upcoming.first),
           ],
         );
+      },
+    );
       },
     );
   }
@@ -730,7 +838,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _recentAlertsSection(BuildContext context) {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
+    return Consumer<FamilyProvider>(
+      builder: (context, _, __) {
+    final userId = context.activeUid;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -745,7 +855,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
         const SizedBox(height: 8),
-        if (userId == null)
+        if (userId.isEmpty)
           const EmptyListPlaceholder(
             icon: Icons.notifications_none_outlined,
             title: 'No alerts yet',
@@ -775,6 +885,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             },
           ),
       ],
+    );
+      },
     );
   }
 

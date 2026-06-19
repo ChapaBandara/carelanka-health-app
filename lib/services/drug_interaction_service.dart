@@ -168,27 +168,33 @@ class DrugInteractionService {
   /// continues to work even when the network is unavailable.
   Future<ConflictResult> checkAll(
     String newMedicationName,
-    String userId,
-  ) async {
+    String userId, {
+    List<Map<String, dynamic>>? existingMedications,
+  }) async {
     final medName = newMedicationName.trim().toLowerCase();
     if (medName.isEmpty) return const ConflictResult();
 
-    // Fetch only active medications that belong to ongoing illnesses.
-    final illnessSnap = await FirebaseFirestore.instance
-        .collection(FirebaseCollections.illnesses)
-        .where('userId', isEqualTo: userId)
-        .get();
-    final activeIllnessIds = illnessSnap.docs
-        .where((d) => (d.data()['status'] as String? ?? 'active') != 'completed')
-        .map((d) => d.id)
-        .toSet();
+    final List<Map<String, dynamic>> activeMeds;
+    if (existingMedications != null) {
+      activeMeds = existingMedications;
+    } else {
+      // Fetch only active medications that belong to ongoing illnesses.
+      final illnessSnap = await FirebaseFirestore.instance
+          .collection(FirebaseCollections.illnesses)
+          .where('userId', isEqualTo: userId)
+          .get();
+      final activeIllnessIds = illnessSnap.docs
+          .where((d) => (d.data()['status'] as String? ?? 'active') != 'completed')
+          .map((d) => d.id)
+          .toSet();
 
-    final existingMeds = await MedicationService().watchMedications(userId).first;
-    final activeMeds = existingMeds.where((m) {
-      if (m['active'] != true) return false;
-      final illnessId = m['illnessId'] as String? ?? '';
-      return illnessId.isNotEmpty && activeIllnessIds.contains(illnessId);
-    }).toList();
+      final existingMeds = await MedicationService().watchMedications(userId).first;
+      activeMeds = existingMeds.where((m) {
+        if (m['active'] != true) return false;
+        final illnessId = m['illnessId'] as String? ?? '';
+        return illnessId.isNotEmpty && activeIllnessIds.contains(illnessId);
+      }).toList();
+    }
 
     final existingNameMap = <String, String>{};
     for (final med in activeMeds) {

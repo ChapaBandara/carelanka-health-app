@@ -2,13 +2,15 @@ import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/design/carelanka_gradients.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
+import 'package:carelanka_app/core/utils/active_uid.dart';
+import 'package:carelanka_app/providers/family_provider.dart';
 import 'package:carelanka_app/services/health_record_service.dart';
 import 'package:carelanka_app/widgets/carelanka/carelanka_bottom_nav.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 /// CareLanka UI #35 — Health Records with document list.
 class HealthRecordsScreen extends StatefulWidget {
@@ -21,25 +23,33 @@ class HealthRecordsScreen extends StatefulWidget {
 class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
   int _chip = 0;
   final _chips = ['All', 'Prescriptions', 'Lab Reports', 'Scans', 'Summary Reports'];
-  DateTime? _filterFrom;
-  DateTime? _filterTo;
-  String _filterDoctor = '';
-  String _filterDiagnosis = 'all';
-  bool _filterAttachOnly = false;
-  final _filterDoctorCtrl = TextEditingController();
+  DateTime? _fromDate;
+  DateTime? _toDate;
+  String _doctorQuery = '';
+  String _diagnosisQuery = 'all';
+  bool _attachOnly = false;
 
-  @override
-  void dispose() {
-    _filterDoctorCtrl.dispose();
-    super.dispose();
+  List<Map<String, String>> _applyChipFilter(List<Map<String, String>> records) {
+    if (_chip == 0) return records;
+    final chip = _chips[_chip].toLowerCase();
+    return records.where((r) {
+      final type = (r['documentType'] ?? r['tag'] ?? '').toLowerCase();
+      if (chip.contains('prescription')) return type.contains('prescription');
+      if (chip.contains('lab')) return type.contains('lab');
+      if (chip.contains('scan')) return type.contains('scan') || type.contains('x-ray');
+      if (chip.contains('summary')) {
+        return type.contains('summary') || type.contains('annual') || type.contains('checkup');
+      }
+      return true;
+    }).toList();
   }
 
   void _openFilter(List<Map<String, String>> allRecords) {
-    var attachOnly = _filterAttachOnly;
-    final doctorCtrl = TextEditingController(text: _filterDoctor);
-    var from = _filterFrom;
-    var to = _filterTo;
-    var diagnosis = _filterDiagnosis;
+    var attachOnly = _attachOnly;
+    final doctorCtrl = TextEditingController(text: _doctorQuery);
+    var from = _fromDate;
+    var to = _toDate;
+    var diagnosis = _diagnosisQuery;
 
     final diagnoses = <String>{'all'};
     for (final r in allRecords) {
@@ -85,11 +95,10 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
                         Expanded(
                           child: TextField(
                             readOnly: true,
-                            controller: TextEditingController(
-                              text: from != null ? DateFormat('MMM d, yyyy').format(from!) : '',
-                            ),
                             decoration: InputDecoration(
-                              hintText: 'From',
+                              hintText: from != null
+                                  ? DateFormat('MMM d, yyyy').format(from!)
+                                  : 'From',
                               suffixIcon: const Icon(Icons.calendar_today_outlined, size: 18),
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                             ),
@@ -108,11 +117,10 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
                         Expanded(
                           child: TextField(
                             readOnly: true,
-                            controller: TextEditingController(
-                              text: to != null ? DateFormat('MMM d, yyyy').format(to!) : '',
-                            ),
                             decoration: InputDecoration(
-                              hintText: 'To',
+                              hintText: to != null
+                                  ? DateFormat('MMM d, yyyy').format(to!)
+                                  : 'To',
                               suffixIcon: const Icon(Icons.calendar_today_outlined, size: 18),
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                             ),
@@ -173,28 +181,24 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
                       label: 'Apply Filters',
                       onPressed: () {
                         setState(() {
-                          _filterFrom = from;
-                          _filterTo = to;
-                          _filterDoctor = doctorCtrl.text.trim();
-                          _filterDiagnosis = diagnosis;
-                          _filterAttachOnly = attachOnly;
-                          _filterDoctorCtrl.text = doctorCtrl.text.trim();
+                          _fromDate = from;
+                          _toDate = to;
+                          _doctorQuery = doctorCtrl.text.trim();
+                          _diagnosisQuery = diagnosis;
+                          _attachOnly = attachOnly;
                         });
-                        doctorCtrl.dispose();
                         Navigator.pop(ctx);
                       },
                     ),
                     TextButton(
                       onPressed: () {
                         setState(() {
-                          _filterFrom = null;
-                          _filterTo = null;
-                          _filterDoctor = '';
-                          _filterDiagnosis = 'all';
-                          _filterAttachOnly = false;
-                          _filterDoctorCtrl.clear();
+                          _fromDate = null;
+                          _toDate = null;
+                          _doctorQuery = '';
+                          _diagnosisQuery = 'all';
+                          _attachOnly = false;
                         });
-                        doctorCtrl.dispose();
                         Navigator.pop(ctx);
                       },
                       child: const Text('Clear Filters', style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.w700)),
@@ -209,38 +213,25 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
     );
   }
 
-  List<Map<String, String>> _filterRecords(List<Map<String, String>> records) {
-    var filtered = HealthRecordService().filterRecords(
-      records,
-      from: _filterFrom,
-      to: _filterTo,
-      doctorQuery: _filterDoctor,
-      diagnosisQuery: _filterDiagnosis,
-      attachOnly: _filterAttachOnly,
-    );
-
-    if (_chip == 0) return filtered;
-    final chip = _chips[_chip].toLowerCase();
-    return filtered.where((r) {
-      final type = (r['documentType'] ?? r['tag'] ?? '').toLowerCase();
-      if (chip.contains('prescription')) return type.contains('prescription');
-      if (chip.contains('lab')) return type.contains('lab');
-      if (chip.contains('scan')) return type.contains('scan') || type.contains('x-ray');
-      if (chip.contains('summary')) {
-        return type.contains('summary') || type.contains('annual') || type.contains('checkup');
-      }
-      return true;
-    }).toList();
-  }
-
   @override
   Widget build(BuildContext context) {
-    final userId = FirebaseAuth.instance.currentUser!.uid;
+    return Consumer<FamilyProvider>(
+      builder: (context, _, __) {
+    final userId = context.activeUid;
 
     return StreamBuilder<List<Map<String, String>>>(
       stream: HealthRecordService().watchRecordMaps(userId),
       builder: (context, snapshot) {
-        final records = _filterRecords(snapshot.data ?? []);
+        final allRecords = snapshot.data ?? [];
+        final filtered = HealthRecordService().filterRecords(
+          allRecords,
+          from: _fromDate,
+          to: _toDate,
+          doctorQuery: _doctorQuery,
+          diagnosisQuery: _diagnosisQuery,
+          attachOnly: _attachOnly,
+        );
+        final records = _applyChipFilter(filtered);
         final hasRecords = records.isNotEmpty;
 
         return Scaffold(
@@ -257,7 +248,7 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
                 onPressed: () => Navigator.pushNamed(context, AppRoutes.healthRecordSearch),
                 icon: const Icon(Icons.search),
               ),
-              IconButton(onPressed: () => _openFilter(snapshot.data ?? []), icon: const Icon(Icons.filter_list)),
+              IconButton(onPressed: () => _openFilter(allRecords), icon: const Icon(Icons.filter_list)),
             ],
           ),
           bottomNavigationBar: const CareLankaBottomNav(currentIndex: 0),
@@ -327,6 +318,8 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
         );
       },
     );
+      },
+    );
   }
 
   Widget _recordTile(BuildContext context, Map<String, String> record, String userId) {
@@ -362,7 +355,21 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
                 Expanded(
                   child: InkWell(
                     borderRadius: BorderRadius.circular(10),
-                    onTap: () => Navigator.pushNamed(context, AppRoutes.documentViewer, arguments: record),
+                    onTap: () => Navigator.pushNamed(
+                      context,
+                      AppRoutes.documentViewer,
+                      arguments: <String, String>{
+                        'recordId': record['recordId'] ?? '',
+                        'diagnosis': record['diagnosis'] ?? '',
+                        'doctor': record['doctor'] ?? '',
+                        'place': record['place'] ?? '',
+                        'notes': record['notes'] ?? '',
+                        'monthDay': record['monthDay'] ?? '',
+                        'documentType': record['documentType'] ?? '',
+                        'documentUrl': record['documentUrl'] ?? '',
+                        'linkedIllness': record['linkedIllness'] ?? '',
+                      },
+                    ),
                     child: Row(
                       children: [
                         Container(

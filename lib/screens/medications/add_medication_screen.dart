@@ -422,7 +422,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
     } catch (_) {}
   }
 
-  void _showConflictOverlay(BuildContext context, String message) {
+  void _showConflictOverlay(String message) {
     final overlay = Overlay.of(context);
     late OverlayEntry entry;
     entry = OverlayEntry(
@@ -499,19 +499,59 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
       final userId = FirebaseAuth.instance.currentUser?.uid;
       if (userId == null) return;
 
-      final result = await DrugInteractionService().checkAll(medName, userId);
+      final illnessSnap = await FirebaseFirestore.instance
+          .collection('illnesses')
+          .where('userId', isEqualTo: userId)
+          .where('status', isEqualTo: 'active')
+          .get();
+      final activeIllnessIds = illnessSnap.docs.map((d) => d.id).toSet();
+
+      final existingMeds = await MedicationService().watchMedications(userId).first;
+      final activeMeds = MedicationService().filterActiveForIllnesses(
+        existingMeds,
+        activeIllnessIds,
+      );
+
+      final result = await DrugInteractionService().checkAll(
+        medName,
+        userId,
+        existingMedications: activeMeds,
+      );
+
+      final allergySnap = await FirebaseFirestore.instance
+          .collection('allergies')
+          .where('userId', isEqualTo: userId)
+          .get();
+      final allergyNames = allergySnap.docs
+          .map((d) => (d.data()['allergyName'] as String? ?? '').toLowerCase())
+          .toList();
+
+      final medLower = medName.toLowerCase();
+      final matchedAllergy = allergyNames.firstWhere(
+        (a) => a.isNotEmpty && (medLower.contains(a) || a.contains(medLower)),
+        orElse: () => '',
+      );
+
+      String? allergyMessage;
+      if (matchedAllergy.isNotEmpty) {
+        allergyMessage =
+            'Warning: $medName may conflict with your recorded allergy to $matchedAllergy';
+      }
 
       if (!mounted) return;
       setState(() {
         _conflictMessage = result.conflictMessage;
-        _allergyMessage = result.allergyMessage;
+        _allergyMessage = allergyMessage;
         _conflictingMedicationNames = result.conflictingMedicationNames;
-        _matchedAllergyNames = result.matchedAllergies;
+        _matchedAllergyNames = matchedAllergy.isNotEmpty ? [matchedAllergy] : [];
       });
-      if (result.hasWarning) {
+
+      if (result.conflictMessage != null || allergyMessage != null) {
         _showConflictOverlay(
-          context,
-          result.conflictMessage ?? result.allergyMessage ?? '',
+          [
+            if (result.conflictMessage != null) result.conflictMessage!,
+            if (allergyMessage != null) allergyMessage,
+          ].join('\n'),
         );
       }
     } catch (_) {

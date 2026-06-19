@@ -30,6 +30,7 @@ dependencies:
   timezone: any
   emailjs: ^4.0.0
   http: any
+  url_launcher: any
 
 dev_dependencies:
   flutter_test:

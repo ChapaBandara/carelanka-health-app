@@ -1,15 +1,19 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
+import 'package:carelanka_app/core/utils/active_uid.dart';
+import 'package:carelanka_app/providers/family_provider.dart';
 import 'package:carelanka_app/services/illness_service.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 class IllnessListScreen extends StatelessWidget {
   const IllnessListScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final userId = FirebaseAuth.instance.currentUser!.uid;
+    return Consumer<FamilyProvider>(
+      builder: (context, _, __) {
+    final userId = context.activeUid;
     return StreamBuilder<List<Map<String, String>>>(
       stream: IllnessService().watchIllnessMaps(userId),
       builder: (context, snapshot) {
@@ -39,6 +43,8 @@ class IllnessListScreen extends StatelessWidget {
           ),
         ),
       ),
+    );
+      },
     );
       },
     );

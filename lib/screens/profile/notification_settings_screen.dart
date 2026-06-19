@@ -23,6 +23,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
   bool lowStock = true;
   bool quietHours = true;
   String snooze = '15 minutes';
+  bool vibrate = true;
   bool _prefsLoaded = false;
 
   void _applyPrefs(Map<String, dynamic> prefs) {
@@ -35,6 +36,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
     lowStock = prefs['lowStockReminders'] as bool? ?? true;
     quietHours = prefs['quietHours'] as bool? ?? true;
     snooze = prefs['snoozeDuration'] as String? ?? '15 minutes';
+    vibrate = prefs['vibrate'] as bool? ?? true;
   }
 
   Map<String, dynamic> _currentPrefs() => {
@@ -47,6 +49,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
         'lowStockReminders': lowStock,
         'quietHours': quietHours,
         'snoozeDuration': snooze,
+        'vibrate': vibrate,
       };
 
   Future<void> _save() async {
@@ -121,6 +124,12 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                           _toggleTile('Drug Conflict Warnings', 'Always receive safety warnings (cannot disable)', conflict, null),
                           _toggleTile('Weekly Health Summary', 'Receive a weekly summary of your health data', weekly, (v) => setState(() => weekly = v)),
                           _toggleTile('Low Stock Reminders', 'Get reminded when a medication stock is running low', lowStock, (v) => setState(() => lowStock = v)),
+                          _toggleTile(
+                            'Vibrate on Reminders',
+                            'Phone vibrates when medication or appointment reminders fire',
+                            vibrate,
+                            (v) => setState(() => vibrate = v),
+                          ),
                         ],
                       ),
                     ),

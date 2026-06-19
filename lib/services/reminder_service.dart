@@ -67,6 +67,34 @@ class ReminderService {
     return controller.stream;
   }
 
+  Stream<List<Map<String, dynamic>>> watchTodayReminderLogs(String userId) {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day);
+    final end = start.add(const Duration(days: 1));
+    return _col
+        .where('userId', isEqualTo: userId)
+        .where('scheduledTime', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('scheduledTime', isLessThan: Timestamp.fromDate(end))
+        .orderBy('scheduledTime', descending: true)
+        .snapshots()
+        .map((snap) {
+      return snap.docs.map((d) {
+        final data = d.data();
+        final scheduled = data['scheduledTime'];
+        final actual = data['actualResponseTime'];
+        return {
+          ...data,
+          'logId': d.id,
+          'scheduledTime': scheduled is Timestamp ? scheduled.toDate() : null,
+          'actualResponseTime': actual is Timestamp ? actual.toDate() : null,
+          'snoozeUntil': data['snoozeUntil'] is Timestamp
+              ? (data['snoozeUntil'] as Timestamp).toDate()
+              : null,
+        };
+      }).toList();
+    });
+  }
+
   List<Map<String, dynamic>> _buildFullDoseHistory(
     QuerySnapshot<Map<String, dynamic>> medSnap,
     QuerySnapshot<Map<String, dynamic>> illnessSnap,

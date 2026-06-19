@@ -1,11 +1,13 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
+import 'package:carelanka_app/core/utils/active_uid.dart';
 import 'package:carelanka_app/models/daily_dose_item.dart';
+import 'package:carelanka_app/providers/family_provider.dart';
 import 'package:carelanka_app/services/reminder_service.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 /// CareLanka UI #27–#33 — Reminder History with status-specific tab layouts.
 class ReminderHistoryScreen extends StatefulWidget {
@@ -18,7 +20,6 @@ class ReminderHistoryScreen extends StatefulWidget {
 class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tab = TabController(length: 4, vsync: this);
-  late final Stream<List<Map<String, dynamic>>> _doseHistoryStream;
   bool _searchOpen = false;
   List<Map<String, dynamic>> _allLogs = [];
   List<Map<String, dynamic>> _filteredLogs = [];
@@ -29,9 +30,6 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
   void initState() {
     super.initState();
     _searchController.addListener(_applyFilter);
-    _doseHistoryStream = ReminderService().watchAllDoseHistory(
-      FirebaseAuth.instance.currentUser!.uid,
-    );
   }
 
   @override
@@ -51,10 +49,7 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
         _filteredLogs = _allLogs.where((log) {
           final name = (log['medicationName'] ?? '').toString().toLowerCase();
           final condition = (log['condition'] ?? '').toString().toLowerCase();
-          final status = (log['status'] ?? '').toString().toLowerCase();
-          return name.contains(query) ||
-              condition.contains(query) ||
-              status.contains(query);
+          return name.contains(query) || condition.contains(query);
         }).toList();
       }
     });
@@ -140,8 +135,11 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: _doseHistoryStream,
+    return Consumer<FamilyProvider>(
+      builder: (context, _, __) {
+        final userId = context.activeUid;
+        return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: ReminderService().watchTodayReminderLogs(userId),
       builder: (context, snapshot) {
         if (snapshot.hasData && !identical(snapshot.data, _lastStreamSnapshot)) {
           _lastStreamSnapshot = snapshot.data;
@@ -209,11 +207,13 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
                 children: [
                   _AllTab(reminders: reminders),
                   _ConfirmedTab(doses: historyDoses),
-                  _MissedTab(doses: historyDoses.where((d) => d.status == 'missed' || d.status == 'skipped').toList()),
+                  _MissedTab(doses: historyDoses.where((d) => d.status == 'missed').toList()),
                   _SnoozedTab(doses: historyDoses.where((d) => d.status == 'snoozed').toList()),
                 ],
               ),
             );
+      },
+    );
       },
     );
   }
@@ -653,7 +653,7 @@ class _ActionDoseCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final userId = FirebaseAuth.instance.currentUser!.uid;
+    final userId = context.activeUid;
     final label = statusLabel ?? 'Missed at ${dose.scheduledLabel}';
 
     return Container(
@@ -729,7 +729,7 @@ class _ActionDoseCard extends StatelessWidget {
                                 medicationName: dose.medicationName,
                                 condition: dose.condition,
                                 scheduledTime: dose.scheduledAt,
-                                status: 'missed',
+                                status: 'skipped',
                                 existingLogId: dose.logId,
                               );
                             },
@@ -738,7 +738,7 @@ class _ActionDoseCard extends StatelessWidget {
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
                               padding: const EdgeInsets.symmetric(vertical: 12),
                             ),
-                            child: const Text('Skip Dose', style: TextStyle(fontWeight: FontWeight.w700)),
+                            child: const Text('Mark as Skipped', style: TextStyle(fontWeight: FontWeight.w700)),
                           ),
                         ),
                       ],

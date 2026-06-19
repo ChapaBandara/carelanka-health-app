@@ -1,6 +1,8 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
+import 'package:carelanka_app/core/utils/active_uid.dart';
 import 'package:carelanka_app/providers/auth_provider.dart';
+import 'package:carelanka_app/providers/family_provider.dart';
 import 'package:carelanka_app/services/adherence_service.dart';
 import 'package:carelanka_app/services/reminder_service.dart';
 import 'package:carelanka_app/services/report_service.dart';
@@ -8,7 +10,6 @@ import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -94,7 +95,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final userId = FirebaseAuth.instance.currentUser!.uid;
+    return Consumer<FamilyProvider>(
+      builder: (context, _, __) {
+    final userId = context.activeUid;
     final range = _periodRange();
 
     return FutureBuilder<DoseStats>(
@@ -146,6 +149,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
             ],
           ),
         );
+      },
+    );
       },
     );
   }

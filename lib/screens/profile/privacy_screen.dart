@@ -3,6 +3,7 @@ import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/widgets/carelanka/carelanka_section_card.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 /// CareLanka UI #57 — Privacy and Security screen.
 class PrivacyScreen extends StatefulWidget {
@@ -21,7 +22,11 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
   String get _sessionSubtitle {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return 'Not signed in';
-    return '1 device logged in';
+    final metadata = user.metadata;
+    final lastSignIn = metadata.lastSignInTime;
+    if (lastSignIn == null) return '1 active session';
+    final formatted = DateFormat('d MMM yyyy, h:mm a').format(lastSignIn);
+    return 'Last sign-in: $formatted';
   }
 
   @override

@@ -1,11 +1,13 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
+import 'package:carelanka_app/core/utils/active_uid.dart';
+import 'package:carelanka_app/providers/family_provider.dart';
 import 'package:carelanka_app/services/alert_service.dart';
 import 'package:carelanka_app/widgets/carelanka/carelanka_bottom_nav.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 class AlertsScreen extends StatefulWidget {
   const AlertsScreen({super.key});
@@ -25,7 +27,9 @@ class _AlertsScreenState extends State<AlertsScreen> with SingleTickerProviderSt
 
   @override
   Widget build(BuildContext context) {
-    final userId = FirebaseAuth.instance.currentUser!.uid;
+    return Consumer<FamilyProvider>(
+      builder: (context, _, __) {
+    final userId = context.activeUid;
 
     return StreamBuilder<List<Map<String, String>>>(
       stream: AlertService().watchAlertMaps(userId),
@@ -78,6 +82,8 @@ class _AlertsScreenState extends State<AlertsScreen> with SingleTickerProviderSt
           _list(alerts, filter: 'checkup'),
         ],
       ),
+    );
+      },
     );
       },
     );

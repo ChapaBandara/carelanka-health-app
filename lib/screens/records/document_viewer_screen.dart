@@ -1,5 +1,6 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// CareLanka UI #37 — Health record summary with optional attachment viewer.
 class DocumentViewerScreen extends StatefulWidget {
@@ -248,53 +249,42 @@ class _DocumentViewerScreenState extends State<DocumentViewerScreen> {
   Widget _documentPlaceholder(String url) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 10, offset: const Offset(0, 3)),
-        ],
+        border: Border.all(color: const Color(0xFFDEE2E6)),
       ),
-      child: Stack(
-        alignment: Alignment.centerRight,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Center(
-            child: Transform.scale(
-              scale: _zoom,
-              child: Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFE0E0E0)),
-                ),
-                child: SizedBox(
-                  width: 260,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(height: 12, width: 120, color: Colors.grey.shade300),
-                      const SizedBox(height: 12),
-                      Container(height: 8, width: double.infinity, color: Colors.grey.shade200),
-                      const SizedBox(height: 8),
-                      Container(height: 8, width: double.infinity, color: Colors.grey.shade200),
-                      const SizedBox(height: 8),
-                      Container(height: 8, width: 200, color: Colors.grey.shade200),
-                    ],
-                  ),
-                ),
-              ),
+          const Icon(Icons.picture_as_pdf_outlined,
+            color: AppColors.primaryTeal, size: 48),
+          const SizedBox(height: 12),
+          const Text('PDF Document',
+            style: TextStyle(fontWeight: FontWeight.w700,
+              fontSize: 16, color: AppColors.navy)),
+          const SizedBox(height: 8),
+          const Text('Tap below to open the document',
+            style: TextStyle(color: AppColors.textGrey,
+              fontSize: 13)),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: () async {
+              final uri = Uri.tryParse(url);
+              if (uri != null && await canLaunchUrl(uri)) {
+                await launchUrl(uri,
+                  mode: LaunchMode.externalApplication);
+              }
+            },
+            icon: const Icon(Icons.open_in_new),
+            label: const Text('Open Document'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primaryTeal,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
             ),
-          ),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _zoomButton(Icons.zoom_in, () => setState(() => _zoom = (_zoom + 0.1).clamp(0.8, 2.0))),
-              const SizedBox(height: 8),
-              _zoomButton(Icons.zoom_out, () => setState(() => _zoom = (_zoom - 0.1).clamp(0.8, 2.0))),
-            ],
           ),
         ],
       ),

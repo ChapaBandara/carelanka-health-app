@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
@@ -28,12 +30,49 @@ class NotificationService {
     _initialized = true;
   }
 
+  Future<bool> _getVibrateEnabled(String userId) async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .get();
+      return doc.data()?['vibrateEnabled'] as bool? ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<bool> _vibrateForCurrentUser() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null || userId.isEmpty) return true;
+    return _getVibrateEnabled(userId);
+  }
+
   Future<void> scheduleMedicationReminders({
     required String medicationId,
     required String title,
     required List<String> timeStrings,
   }) async {
     await initialize();
+    final vibrate = await _vibrateForCurrentUser();
+    final details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'medication_reminders',
+        'Medication Reminders',
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: vibrate,
+        fullScreenIntent: true,
+        styleInformation: BigTextStyleInformation(''),
+      ),
+      iOS: DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+        interruptionLevel: InterruptionLevel.timeSensitive,
+      ),
+    );
     var id = medicationId.hashCode.abs() % 100000;
     for (final timeStr in timeStrings) {
       final parts = _parseTime(timeStr.trim());
@@ -47,6 +86,7 @@ class NotificationService {
         title: 'Medication reminder',
         body: title,
         matchDateTimeComponents: DateTimeComponents.time,
+        notificationDetails: details,
       );
     }
   }
@@ -77,6 +117,24 @@ class NotificationService {
     ],
   }) async {
     await initialize();
+    final vibrate = await _vibrateForCurrentUser();
+    final details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'appointment_reminders',
+        'Appointment Reminders',
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: vibrate,
+        sound: const RawResourceAndroidNotificationSound('notification'),
+        styleInformation: const BigTextStyleInformation(''),
+      ),
+      iOS: DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      ),
+    );
     var id = appointmentId.hashCode.abs() % 200000;
     for (final offset in offsets) {
       final when = appointmentTime.subtract(offset);
@@ -88,6 +146,7 @@ class NotificationService {
         channelName: 'Appointment Reminders',
         title: 'Appointment reminder',
         body: title,
+        notificationDetails: details,
       );
     }
   }
@@ -99,24 +158,15 @@ class NotificationService {
     required String channelName,
     required String title,
     required String body,
+    required NotificationDetails notificationDetails,
     DateTimeComponents? matchDateTimeComponents,
   }) async {
-    final details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        channelId,
-        channelName,
-        importance: Importance.high,
-        priority: Priority.high,
-      ),
-      iOS: const DarwinNotificationDetails(),
-    );
-
     var mode = await _preferredAndroidScheduleMode();
     try {
       await _plugin.zonedSchedule(
         id: id,
         scheduledDate: scheduledDate,
-        notificationDetails: details,
+        notificationDetails: notificationDetails,
         androidScheduleMode: mode,
         matchDateTimeComponents: matchDateTimeComponents,
         title: title,
@@ -130,7 +180,7 @@ class NotificationService {
       await _plugin.zonedSchedule(
         id: id,
         scheduledDate: scheduledDate,
-        notificationDetails: details,
+        notificationDetails: notificationDetails,
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         matchDateTimeComponents: matchDateTimeComponents,
         title: title,
@@ -172,16 +222,18 @@ class NotificationService {
   Future<void> showCheckupSuggestion({required int daysSinceCheckup}) async {
     await initialize();
     const id = 900001;
+    final vibrate = await _vibrateForCurrentUser();
     await _plugin.show(
       id: id,
-      notificationDetails: const NotificationDetails(
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           'checkup_suggestions',
           'Checkup Suggestions',
           importance: Importance.high,
           priority: Priority.high,
+          enableVibration: vibrate,
         ),
-        iOS: DarwinNotificationDetails(),
+        iOS: const DarwinNotificationDetails(),
       ),
       title: 'Checkup reminder',
       body: "You haven't had a checkup in $daysSinceCheckup days. Tap to schedule a visit.",
@@ -194,20 +246,22 @@ class NotificationService {
     required String body,
   }) async {
     await initialize();
+    final vibrate = await _vibrateForCurrentUser();
     // Derive a stable ID from the title so the same medication doesn't spam.
     final id = 800000 + (title.hashCode.abs() % 10000);
     await _plugin.show(
       id: id,
       title: title,
       body: body,
-      notificationDetails: const NotificationDetails(
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           'stock_warnings',
           'Stock Warnings',
           importance: Importance.high,
           priority: Priority.high,
+          enableVibration: vibrate,
         ),
-        iOS: DarwinNotificationDetails(),
+        iOS: const DarwinNotificationDetails(),
       ),
     );
   }
@@ -218,20 +272,58 @@ class NotificationService {
     required String body,
   }) async {
     await initialize();
+    final vibrate = await _vibrateForCurrentUser();
     // Stable ID derived from title so the same dose doesn't spam.
     final id = 700000 + (title.hashCode.abs() % 10000);
     await _plugin.show(
       id: id,
       title: title,
       body: body,
-      notificationDetails: const NotificationDetails(
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           'missed_doses',
           'Missed Doses',
           importance: Importance.high,
           priority: Priority.high,
+          enableVibration: vibrate,
         ),
-        iOS: DarwinNotificationDetails(),
+        iOS: const DarwinNotificationDetails(),
+      ),
+    );
+  }
+
+  Future<void> showAdherenceReportNotification({
+    required double adherenceScore,
+    required String period,
+  }) async {
+    await initialize();
+    final id = 500001;
+    final isGood = adherenceScore >= 80;
+    final title = isGood
+        ? '$period Health Report — Great job! 🎉'
+        : '$period Health Report — Keep going! 💪';
+    final body = isGood
+        ? 'You took ${adherenceScore.round()}% of your doses on time. '
+            'Excellent consistency!'
+        : 'You took ${adherenceScore.round()}% of your doses. '
+            "Every dose matters. Don't give up!";
+    await _plugin.show(
+      id: id,
+      title: title,
+      body: body,
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'health_reports',
+          'Health Reports',
+          importance: Importance.high,
+          priority: Priority.high,
+          playSound: true,
+          enableVibration: true,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentSound: true,
+        ),
       ),
     );
   }
@@ -242,6 +334,21 @@ class NotificationService {
     int snoozeDurationMinutes = 15,
   }) async {
     await initialize();
+    final vibrate = await _vibrateForCurrentUser();
+    final details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'medication_reminders',
+        'Medication Reminders',
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: vibrate,
+        fullScreenIntent: true,
+        visibility: NotificationVisibility.public,
+        category: AndroidNotificationCategory.alarm,
+      ),
+      iOS: DarwinNotificationDetails(),
+    );
     final snoozeTime = DateTime.now().add(Duration(minutes: snoozeDurationMinutes));
     final tzSnooze = tz.TZDateTime.from(snoozeTime, tz.local);
     await _zonedSchedule(
@@ -251,6 +358,7 @@ class NotificationService {
       channelName: 'Medication Reminders',
       title: 'Medication reminder (snoozed)',
       body: 'Your snoozed dose is due now.',
+      notificationDetails: details,
     );
   }
 }

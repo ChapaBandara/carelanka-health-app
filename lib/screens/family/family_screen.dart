@@ -104,6 +104,11 @@ class _FamilyScreenState extends State<FamilyScreen> {
                   onTap: () {
                     family.switchToSelf();
                     Navigator.pop(ctx);
+                    Navigator.pushNamedAndRemoveUntil(
+                      context,
+                      AppRoutes.dashboard,
+                      (_) => false,
+                    );
                   },
                 ),
                 for (final m in members)
@@ -117,8 +122,10 @@ class _FamilyScreenState extends State<FamilyScreen> {
                     onTap: () {
                       family.switchToMember(m);
                       Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Viewing ${m['name']}\'s family profile')),
+                      Navigator.pushNamedAndRemoveUntil(
+                        context,
+                        AppRoutes.dashboard,
+                        (_) => false,
                       );
                     },
                   ),

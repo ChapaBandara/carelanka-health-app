@@ -1,14 +1,16 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
+import 'package:carelanka_app/core/utils/active_uid.dart';
+import 'package:carelanka_app/providers/family_provider.dart';
 import 'package:carelanka_app/services/adherence_service.dart';
 import 'package:carelanka_app/services/illness_service.dart';
 import 'package:carelanka_app/services/medication_service.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 /// CareLanka UI #21 / #23 — Illness detail with medications, complete & delete actions.
 class IllnessDetailScreen extends StatelessWidget {
@@ -16,10 +18,12 @@ class IllnessDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return Consumer<FamilyProvider>(
+      builder: (context, _, __) {
     final args = ModalRoute.of(context)?.settings.arguments;
     final illness = args is Map<String, String> ? args : null;
     final illnessId = illness?['illnessId'];
-    final userId = FirebaseAuth.instance.currentUser!.uid;
+    final userId = context.activeUid;
 
     if (illnessId == null || illnessId.isEmpty) {
       return _buildScaffold(
@@ -148,6 +152,8 @@ class IllnessDetailScreen extends StatelessWidget {
             );
           },
         );
+      },
+    );
       },
     );
   }
