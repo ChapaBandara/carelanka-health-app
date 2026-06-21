@@ -46,9 +46,12 @@ class _MedicationListScreenState extends State<MedicationListScreen>
 
   @override
   Widget build(BuildContext context) {
-    final isActiveTab = _tab.index == 0;
+    return Consumer<FamilyProvider>(
+      builder: (context, _, __) {
+        final userId = context.activeUid;
+        final isActiveTab = _tab.index == 0;
 
-    return Scaffold(
+        return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         leading: IconButton(
@@ -98,10 +101,7 @@ class _MedicationListScreenState extends State<MedicationListScreen>
             )
           : null,
       // Single StreamBuilder for both tabs — subscribed exactly once
-      body: Consumer<FamilyProvider>(
-        builder: (context, _, __) {
-          final userId = context.activeUid;
-          return StreamBuilder<List<Map<String, String>>>(
+      body: StreamBuilder<List<Map<String, String>>>(
         stream: IllnessService().watchIllnessMaps(userId),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -118,9 +118,9 @@ class _MedicationListScreenState extends State<MedicationListScreen>
             ],
           );
         },
-      );
-        },
       ),
+    );
+      },
     );
   }
 

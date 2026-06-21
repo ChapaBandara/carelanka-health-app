@@ -19,7 +19,7 @@ class IllnessDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Consumer<FamilyProvider>(
-      builder: (context, _, __) {
+      builder: (context, _, _) {
     final args = ModalRoute.of(context)?.settings.arguments;
     final illness = args is Map<String, String> ? args : null;
     final illnessId = illness?['illnessId'];

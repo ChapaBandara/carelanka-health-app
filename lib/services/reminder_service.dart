@@ -95,6 +95,59 @@ class ReminderService {
     });
   }
 
+  Stream<List<Map<String, dynamic>>> watchTodayLogsDeduped(String userId) {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day);
+    final end = start.add(const Duration(days: 1));
+
+    return _col
+        .where('userId', isEqualTo: userId)
+        .where('scheduledTime', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('scheduledTime', isLessThan: Timestamp.fromDate(end))
+        .orderBy('scheduledTime', descending: false)
+        .snapshots()
+        .map((snap) {
+      final seen = <String>{};
+      final result = <Map<String, dynamic>>[];
+
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final medId = data['medicationId'] as String? ?? '';
+        final scheduled = data['scheduledTime'];
+        DateTime? scheduledDt;
+        if (scheduled is Timestamp) scheduledDt = scheduled.toDate();
+
+        // Dedup key: medicationId + hour + minute of scheduledTime
+        final dedupKey = '${medId}_${scheduledDt?.hour.toString() ?? ''}_${scheduledDt?.minute.toString() ?? ''}';
+
+        if (seen.contains(dedupKey)) continue;
+        seen.add(dedupKey);
+
+        result.add({
+          ...data,
+          'logId': doc.id,
+          'scheduledTime': scheduledDt,
+          'actualResponseTime': data['actualResponseTime'] is Timestamp
+              ? (data['actualResponseTime'] as Timestamp).toDate()
+              : null,
+          'snoozeUntil': data['snoozeUntil'] is Timestamp
+              ? (data['snoozeUntil'] as Timestamp).toDate()
+              : null,
+        });
+      }
+
+      // Sort descending after dedup
+      result.sort((a, b) {
+        final aT = a['scheduledTime'] as DateTime?;
+        final bT = b['scheduledTime'] as DateTime?;
+        if (aT == null || bT == null) return 0;
+        return bT.compareTo(aT);
+      });
+
+      return result;
+    });
+  }
+
   List<Map<String, dynamic>> _buildFullDoseHistory(
     QuerySnapshot<Map<String, dynamic>> medSnap,
     QuerySnapshot<Map<String, dynamic>> illnessSnap,

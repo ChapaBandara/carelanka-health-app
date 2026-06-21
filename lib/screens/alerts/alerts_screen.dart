@@ -28,7 +28,7 @@ class _AlertsScreenState extends State<AlertsScreen> with SingleTickerProviderSt
   @override
   Widget build(BuildContext context) {
     return Consumer<FamilyProvider>(
-      builder: (context, _, __) {
+      builder: (context, _, _) {
     final userId = context.activeUid;
 
     return StreamBuilder<List<Map<String, String>>>(
@@ -132,6 +132,10 @@ class _AlertsScreenState extends State<AlertsScreen> with SingleTickerProviderSt
   Widget _card(BuildContext context, Map<String, String> a) {
     final accent = _color(a['accent'] ?? 'teal');
     final tint = _tint(a['tint'] ?? 'white');
+    final isLowStockAlert = (a['type'] ?? '') == 'general' &&
+            (a['title'] ?? '').toLowerCase().contains('low') ||
+        (a['message'] ?? '').toLowerCase().contains('running low') ||
+        (a['message'] ?? '').toLowerCase().contains('supply remaining');
     return InkWell(
       onTap: () {
         if (a['type'] == 'drug' || a['type'] == 'allergy') {
@@ -166,33 +170,80 @@ class _AlertsScreenState extends State<AlertsScreen> with SingleTickerProviderSt
               ),
             ),
             Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    CircleAvatar(
-                      backgroundColor: tint,
-                      child: Icon(_icon(a['type'] ?? ''), color: accent, size: 22),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            a['category'] ?? '',
-                            style: const TextStyle(fontSize: 11, color: AppColors.textGrey, fontWeight: FontWeight.w700, letterSpacing: 0.5),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CircleAvatar(
+                          backgroundColor: tint,
+                          child: Icon(_icon(a['type'] ?? ''), color: accent, size: 22),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                a['category'] ?? '',
+                                style: const TextStyle(fontSize: 11, color: AppColors.textGrey, fontWeight: FontWeight.w700, letterSpacing: 0.5),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(a['title'] ?? '', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                              const SizedBox(height: 6),
+                              Text(a['time'] ?? '', style: const TextStyle(color: AppColors.textGrey, fontSize: 12)),
+                            ],
                           ),
-                          const SizedBox(height: 4),
-                          Text(a['title'] ?? '', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-                          const SizedBox(height: 6),
-                          Text(a['time'] ?? '', style: const TextStyle(color: AppColors.textGrey, fontSize: 12)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isLowStockAlert)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => _markRead(context, a),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.primaryTeal,
+                                side: const BorderSide(color: AppColors.primaryTeal),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(24)),
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                              ),
+                              child: const Text('I Got It',
+                                  style: TextStyle(fontWeight: FontWeight.w700)),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: () {
+                                _markRead(context, a);
+                                Navigator.pushNamed(
+                                    context, AppRoutes.medicationList);
+                              },
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.primaryTeal,
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(24)),
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                              ),
+                              child: const Text('View Medication',
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white)),
+                            ),
+                          ),
                         ],
                       ),
                     ),
-                  ],
-                ),
+                ],
               ),
             ),
           ],

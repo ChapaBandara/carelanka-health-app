@@ -216,7 +216,7 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
   @override
   Widget build(BuildContext context) {
     return Consumer<FamilyProvider>(
-      builder: (context, _, __) {
+      builder: (context, _, _) {
     final userId = context.activeUid;
 
     return StreamBuilder<List<Map<String, String>>>(

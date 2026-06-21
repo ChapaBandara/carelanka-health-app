@@ -550,7 +550,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
         _showConflictOverlay(
           [
             if (result.conflictMessage != null) result.conflictMessage!,
-            if (allergyMessage != null) allergyMessage,
+            ?allergyMessage,
           ].join('\n'),
         );
       }

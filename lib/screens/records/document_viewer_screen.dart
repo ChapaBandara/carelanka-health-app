@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -11,12 +13,13 @@ class DocumentViewerScreen extends StatefulWidget {
 }
 
 class _DocumentViewerScreenState extends State<DocumentViewerScreen> {
-  double _zoom = 1.0;
+  final double _zoom = 1.0;
   bool _showAttachment = false;
 
   bool _isImageUrl(String url) {
     final lower = url.toLowerCase();
-    return lower.contains('.jpg') ||
+    return lower.startsWith('data:image') ||
+        lower.contains('.jpg') ||
         lower.contains('.jpeg') ||
         lower.contains('.png') ||
         lower.contains('.gif') ||
@@ -220,6 +223,23 @@ class _DocumentViewerScreenState extends State<DocumentViewerScreen> {
   }
 
   Widget _attachmentPreview(String url) {
+    if (url.startsWith('data:image')) {
+      // Base64 encoded image
+      try {
+        final base64Str = url.split(',').last;
+        final bytes = base64Decode(base64Str);
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: InteractiveViewer(
+            minScale: 0.5,
+            maxScale: 4,
+            child: Image.memory(bytes, fit: BoxFit.contain),
+          ),
+        );
+      } catch (_) {
+        return _documentPlaceholder(url);
+      }
+    }
     if (_isImageUrl(url)) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(14),
@@ -235,10 +255,12 @@ class _DocumentViewerScreenState extends State<DocumentViewerScreen> {
                 height: 200,
                 alignment: Alignment.center,
                 color: Colors.white,
-                child: const CircularProgressIndicator(color: AppColors.primaryTeal),
+                child: const CircularProgressIndicator(
+                    color: AppColors.primaryTeal),
               );
             },
-            errorBuilder: (context, error, stackTrace) => _documentPlaceholder(url),
+            errorBuilder: (context, error, stackTrace) =>
+                _documentPlaceholder(url),
           ),
         ),
       );

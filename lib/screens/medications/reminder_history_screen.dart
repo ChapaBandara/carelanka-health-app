@@ -136,10 +136,10 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
   @override
   Widget build(BuildContext context) {
     return Consumer<FamilyProvider>(
-      builder: (context, _, __) {
+      builder: (context, _, _) {
         final userId = context.activeUid;
         return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: ReminderService().watchTodayReminderLogs(userId),
+      stream: ReminderService().watchTodayLogsDeduped(userId),
       builder: (context, snapshot) {
         if (snapshot.hasData && !identical(snapshot.data, _lastStreamSnapshot)) {
           _lastStreamSnapshot = snapshot.data;
@@ -277,7 +277,14 @@ class _ConfirmedTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final confirmed = doses.where((d) => d.status == 'confirmed').toList();
     final upcoming = doses.where((d) => d.status == 'upcoming').toList();
-    final total = doses.length;
+    // Only count doses that have actual log entries (confirmed or missed)
+    // not upcoming/pending ones
+    final loggedDoses = doses.where((d) =>
+        d.status == 'confirmed' ||
+        d.status == 'missed' ||
+        d.status == 'snoozed' ||
+        d.status == 'skipped').toList();
+    final total = loggedDoses.length;
     final taken = confirmed.length;
 
     if (total == 0) {
@@ -331,7 +338,9 @@ class _ConfirmedTab extends StatelessWidget {
                     ),
                         const SizedBox(height: 4),
                         Text(
-                          'You have taken $taken out of $total scheduled doses in this view.',
+                          taken == total && total > 0
+                              ? 'All $total doses taken today. Excellent work!'
+                              : 'You have taken $taken out of $total logged doses today.',
                           style: const TextStyle(color: AppColors.textGrey, fontSize: 13, height: 1.35),
                         ),
                   ],

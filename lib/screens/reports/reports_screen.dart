@@ -96,7 +96,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   @override
   Widget build(BuildContext context) {
     return Consumer<FamilyProvider>(
-      builder: (context, _, __) {
+      builder: (context, _, _) {
     final userId = context.activeUid;
     final range = _periodRange();
 

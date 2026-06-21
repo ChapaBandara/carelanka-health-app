@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:carelanka_app/core/firebase/firebase_collections.dart';
@@ -195,11 +196,14 @@ class HealthRecordService {
   }
 
   Future<String?> _uploadDocument(String userId, File documentFile) async {
-    final ext = documentFile.path.split('.').last.toLowerCase();
-    final safeExt = ['jpg', 'jpeg', 'png', 'pdf', 'webp'].contains(ext) ? ext : 'jpg';
-    final path = 'users/$userId/records/${DateTime.now().millisecondsSinceEpoch}.$safeExt';
-
+    // Try Firebase Storage first
     try {
+      final ext = documentFile.path.split('.').last.toLowerCase();
+      final safeExt = ['jpg', 'jpeg', 'png', 'pdf', 'webp'].contains(ext)
+          ? ext
+          : 'jpg';
+      final path =
+          'users/$userId/records/${DateTime.now().millisecondsSinceEpoch}.$safeExt';
       final ref = _storage.ref().child(path);
       final contentType = switch (safeExt) {
         'pdf' => 'application/pdf',
@@ -210,10 +214,28 @@ class HealthRecordService {
       await ref.putFile(
         documentFile,
         SettableMetadata(contentType: contentType),
-      );
+      ).timeout(const Duration(seconds: 30));
       return await ref.getDownloadURL();
-    } catch (e) {
-      throw Exception('Document upload failed. Please try a smaller JPG/PNG/PDF file. ($e)');
+    } catch (storageError) {
+      // Firebase Storage not available — store as base64 in Firestore
+      // This works without the Blaze plan
+      try {
+        final bytes = await documentFile.readAsBytes();
+        // Limit to 500KB to stay within Firestore 1MB document limit
+        if (bytes.length > 500000) {
+          throw Exception(
+              'File too large. Please select an image under 500KB.');
+        }
+        final ext = documentFile.path.split('.').last.toLowerCase();
+        final base64Str = base64Encode(bytes);
+        // Return as data URL so document viewer can display it
+        final mimeType = ext == 'png' ? 'image/png' : 'image/jpeg';
+        return 'data:$mimeType;base64,$base64Str';
+      } catch (e) {
+        if (e.toString().contains('too large')) rethrow;
+        throw Exception(
+            'Could not save document. Please try a smaller image.');
+      }
     }
   }
 }

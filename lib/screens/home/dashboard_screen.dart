@@ -74,7 +74,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final lastDate = DateTime.fromMillisecondsSinceEpoch(lastSent);
       if (lastDate.year == now.year &&
           lastDate.month == now.month &&
-          lastDate.day == now.day) return;
+          lastDate.day == now.day) {
+        return;
+      }
 
       String period = 'Daily';
       DateTime start = DateTime(now.year, now.month, now.day);
@@ -110,7 +112,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer2<AuthProvider, UserDataProvider>(
+    return Consumer<FamilyProvider>(
+      builder: (context, _, __) {
+        final userId = context.activeUid;
+        return Consumer2<AuthProvider, UserDataProvider>(
       builder: (context, auth, data, _) {
         final profile = auth.profile;
         final firstName = profile?.firstName ?? 'there';
@@ -240,6 +245,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       },
     );
+      },
+    );
   }
 
   Widget _checkupBanner(BuildContext context) {
@@ -317,7 +324,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _medicationOverviewSection(BuildContext context) {
     return Consumer<FamilyProvider>(
-      builder: (context, _, __) {
+      builder: (context, _, _) {
     final userId = context.activeUid;
     if (userId.isEmpty) {
       return Column(
@@ -687,7 +694,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _upcomingAppointmentsSection(BuildContext context) {
     return Consumer<FamilyProvider>(
-      builder: (context, _, __) {
+      builder: (context, _, _) {
     final userId = context.activeUid;
     if (userId.isEmpty) {
       return const SizedBox.shrink();
@@ -839,7 +846,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _recentAlertsSection(BuildContext context) {
     return Consumer<FamilyProvider>(
-      builder: (context, _, __) {
+      builder: (context, _, _) {
     final userId = context.activeUid;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
