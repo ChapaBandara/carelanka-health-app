@@ -155,85 +155,92 @@ class AllergyScreen extends StatelessWidget {
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setModal) {
-          return Padding(
-            padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
-            child: Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: const Color(0xFFE0E0E0), borderRadius: BorderRadius.circular(2)))),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          return GestureDetector(
+            onTap: () => FocusScope.of(context).unfocus(),
+            child: Padding(
+              padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewInsetsOf(ctx).bottom),
+              child: SingleChildScrollView(
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(24)),
+                  ),
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Text('Add Allergy', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-                      IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close)),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  const Text('Allergy Name', style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
-                  const SizedBox(height: 6),
-                  TextField(controller: name, decoration: InputDecoration(hintText: 'E.g. Amoxicillin', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
-                  const SizedBox(height: 14),
-                  const Text('Severity', style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
-                  const SizedBox(height: 6),
-                  DropdownButtonFormField<String>(
-                    initialValue: severity,
-                    decoration: InputDecoration(border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
-                    items: const [
-                      DropdownMenuItem(value: 'Mild', child: Text('Mild')),
-                      DropdownMenuItem(value: 'Moderate', child: Text('Moderate')),
-                      DropdownMenuItem(value: 'Severe', child: Text('Severe')),
-                    ],
-                    onChanged: (v) => setModal(() => severity = v ?? severity),
-                  ),
-                  const SizedBox(height: 14),
-                  const Text('Notes (Optional)', style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
-                  const SizedBox(height: 6),
-                  TextField(controller: notes, maxLines: 3, decoration: InputDecoration(hintText: 'Add symptoms or reactions', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
-                  const SizedBox(height: 20),
-                  Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () async {
-                        if (name.text.trim().isEmpty) return;
-                        try {
-                          await AllergyService().addAllergy(
-                            userId: context.activeUid,
-                            allergyName: name.text.trim(),
-                            severity: severity,
-                            category: 'General',
-                            notes: notes.text.trim(),
-                          );
-                          if (!context.mounted) return;
-                          Navigator.pop(ctx);
-                          await showCareLankaSuccessSheet(
-                            context,
-                            icon: Icons.check_rounded,
-                            title: 'Allergy Saved!',
-                            message: '${name.text.trim()} ($severity) has been added to your allergy profile.',
-                            note: 'CareLanka will now warn you if any medication you add conflicts with this allergy.',
-                          );
-                        } catch (e) {
-                          if (!context.mounted) return;
-                          showFirebaseErrorSnackBar(context, firebaseErrorMessage(e));
-                        }
-                      },
-                      borderRadius: BorderRadius.circular(14),
-                      child: Ink(
-                        height: 52,
-                        decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), gradient: CareLankaGradients.primaryHorizontal),
-                        child: const Center(child: Text('Save Allergy', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
+                      Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: const Color(0xFFE0E0E0), borderRadius: BorderRadius.circular(2)))),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Add Allergy', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                          IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close)),
+                        ],
                       ),
-                    ),
+                      const SizedBox(height: 12),
+                      const Text('Allergy Name', style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
+                      const SizedBox(height: 6),
+                      TextField(controller: name, decoration: InputDecoration(hintText: 'E.g. Amoxicillin', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
+                      const SizedBox(height: 14),
+                      const Text('Severity', style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
+                      const SizedBox(height: 6),
+                      DropdownButtonFormField<String>(
+                        initialValue: severity,
+                        decoration: InputDecoration(border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+                        items: const [
+                          DropdownMenuItem(value: 'Mild', child: Text('Mild')),
+                          DropdownMenuItem(value: 'Moderate', child: Text('Moderate')),
+                          DropdownMenuItem(value: 'Severe', child: Text('Severe')),
+                        ],
+                        onChanged: (v) => setModal(() => severity = v ?? severity),
+                      ),
+                      const SizedBox(height: 14),
+                      const Text('Notes (Optional)', style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
+                      const SizedBox(height: 6),
+                      TextField(controller: notes, maxLines: 3, decoration: InputDecoration(hintText: 'Add symptoms or reactions', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
+                      const SizedBox(height: 20),
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () async {
+                            if (name.text.trim().isEmpty) return;
+                            try {
+                              await AllergyService().addAllergy(
+                                userId: context.activeUid,
+                                allergyName: name.text.trim(),
+                                severity: severity,
+                                category: 'General',
+                                notes: notes.text.trim(),
+                              );
+                              if (!context.mounted) return;
+                              Navigator.pop(ctx);
+                              await showCareLankaSuccessSheet(
+                                context,
+                                icon: Icons.check_rounded,
+                                title: 'Allergy Saved!',
+                                message: '${name.text.trim()} ($severity) has been added to your allergy profile.',
+                                note: 'CareLanka will now warn you if any medication you add conflicts with this allergy.',
+                              );
+                            } catch (e) {
+                              if (!context.mounted) return;
+                              showFirebaseErrorSnackBar(context, firebaseErrorMessage(e));
+                            }
+                          },
+                          borderRadius: BorderRadius.circular(14),
+                          child: Ink(
+                            height: 52,
+                            decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), gradient: CareLankaGradients.primaryHorizontal),
+                            child: const Center(child: Text('Save Allergy', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           );

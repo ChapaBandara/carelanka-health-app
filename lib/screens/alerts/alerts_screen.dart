@@ -32,6 +32,7 @@ class _AlertsScreenState extends State<AlertsScreen> with SingleTickerProviderSt
     final userId = context.activeUid;
 
     return StreamBuilder<List<Map<String, String>>>(
+      key: ValueKey(userId),
       stream: AlertService().watchAlertMaps(userId),
       builder: (context, snapshot) {
         final alerts = snapshot.data ?? [];

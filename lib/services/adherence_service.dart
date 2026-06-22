@@ -181,8 +181,8 @@ class AdherenceService {
   }
 
   /// Checks whether [medicationId] has fallen at or below its low-stock
-  /// threshold. If so, creates a Firestore alert (deduplicated to one per day)
-  /// and fires a local notification.
+  /// threshold. If so, creates a Firestore alert (deduplicated to one per
+  /// medication per 7 days) and fires a local notification.
   Future<void> checkAndAlertLowStock(
       String medicationId, String userId) async {
     try {
@@ -206,26 +206,26 @@ class AdherenceService {
 
       if (daysRemaining > threshold) return;
 
-      // Deduplicate: only create one alert per medication per calendar day.
-      final now = DateTime.now();
-      final todayMidnight = DateTime(now.year, now.month, now.day);
+      // Deduplicate: only create one low-stock alert per medication per 7 days.
+      final sevenDaysAgo = DateTime.now().subtract(const Duration(days: 7));
       try {
         final alertsSnap = await _firestore
             .collection(FirebaseCollections.alerts)
             .where('userId', isEqualTo: userId)
             .where('type', isEqualTo: 'general')
             .where('createdAt',
-                isGreaterThanOrEqualTo: Timestamp.fromDate(todayMidnight))
+                isGreaterThanOrEqualTo: Timestamp.fromDate(sevenDaysAgo))
             .get();
 
         final alreadyAlerted = alertsSnap.docs.any((doc) {
           final msg = doc.data()['message'] as String? ?? '';
-          return msg.contains(name);
+          return msg.contains(name) && msg.contains('running low');
         });
         if (alreadyAlerted) return;
       } catch (_) {}
 
       // Create Firestore alert.
+      final now = DateTime.now();
       final message = '$name is running low. $daysRemaining day${daysRemaining == 1 ? '' : 's'} '
           'of supply remaining. Visit your doctor for a renewal prescription.';
       try {

@@ -16,7 +16,6 @@ import 'package:carelanka_app/services/notification_service.dart';
 import 'package:carelanka_app/services/reminder_service.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuth;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -38,13 +37,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     // Run background checks and load checkup state after the first frame.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid == null) return;
+      if (!mounted) return;
+      final uid = context.activeUid;
+      if (uid.isEmpty) return;
 
       // Fire-and-forget background tasks.
       ReminderService().runAdaptiveLogic(uid).catchError((_) {});
       AdherenceService().checkAllMedicationsStock(uid).catchError((_) {});
-      ReminderService().checkMissedReminders(uid).catchError((_) {});
+
+      // Check for missed doses and auto-log them.
+      await ReminderService().checkMissedReminders(uid);
+      await _rescheduleAllNotifications(uid);
 
       _checkAndSendPeriodReport(uid);
 
@@ -110,15 +113,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _lastDayOfMonth(DateTime date) =>
       DateTime(date.year, date.month + 1, 0).day;
 
+  Future<void> _rescheduleAllNotifications(String userId) async {
+    try {
+      final medSnap = await FirebaseFirestore.instance
+          .collection('medications')
+          .where('userId', isEqualTo: userId)
+          .where('active', isEqualTo: true)
+          .get();
+
+      for (final doc in medSnap.docs) {
+        final data = doc.data();
+        final times =
+            List<String>.from(data['scheduledTimes'] as List? ?? []);
+        final name = data['name'] as String? ?? '';
+        if (times.isNotEmpty) {
+          await NotificationService.instance.scheduleMedicationReminders(
+            medicationId: doc.id,
+            title: '$name — tap to take your dose',
+            timeStrings: times,
+          );
+        }
+      }
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<FamilyProvider>(
-      builder: (context, _, __) {
+      builder: (context, familyProvider, _) {
         final userId = context.activeUid;
         return Consumer2<AuthProvider, UserDataProvider>(
       builder: (context, auth, data, _) {
         final profile = auth.profile;
-        final firstName = profile?.firstName ?? 'there';
+        final displayName = familyProvider.isViewingFamilyMember
+            ? familyProvider.activeDisplayName.split(' ').first
+            : (auth.profile?.firstName ?? 'there');
         final isDependent = profile?.isDependent ?? false;
 
         return Scaffold(
@@ -184,7 +213,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            GreetingHelper.dashboardTitle(firstName),
+                            GreetingHelper.dashboardTitle(displayName),
                             style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.textDark),
                           ),
                           const SizedBox(height: 4),

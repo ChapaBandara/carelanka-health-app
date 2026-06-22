@@ -40,6 +40,7 @@ class FamilyService {
       'tag1': gender.isNotEmpty ? gender : '',
       'tag2': bloodType.isNotEmpty ? bloodType : '',
       'linkedUserId': linkedUserId,
+      'hasOwnAccount': hasOwn.toString(),
     };
   }
 

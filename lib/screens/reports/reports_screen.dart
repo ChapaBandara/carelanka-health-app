@@ -1,6 +1,7 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/core/utils/active_uid.dart';
+import 'package:carelanka_app/core/utils/medication_schedule_helper.dart';
 import 'package:carelanka_app/providers/auth_provider.dart';
 import 'package:carelanka_app/providers/family_provider.dart';
 import 'package:carelanka_app/services/adherence_service.dart';
@@ -9,6 +10,7 @@ import 'package:carelanka_app/services/report_service.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -93,6 +95,211 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
+  Future<Set<String>> _getActiveMedicationIds(String userId) async {
+    try {
+      final illnessSnap = await FirebaseFirestore.instance
+          .collection('illnesses')
+          .where('userId', isEqualTo: userId)
+          .where('status', isEqualTo: 'active')
+          .get();
+      final activeIllnessIds = illnessSnap.docs.map((d) => d.id).toSet();
+
+      final medSnap = await FirebaseFirestore.instance
+          .collection('medications')
+          .where('userId', isEqualTo: userId)
+          .where('active', isEqualTo: true)
+          .get();
+
+      return medSnap.docs
+          .where((d) =>
+              activeIllnessIds.contains(d.data()['illnessId'] as String? ?? ''))
+          .map((d) => d.id)
+          .toSet();
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<DoseStats> _fetchReportStats(
+    String userId, {
+    DateTime? start,
+    DateTime? end,
+    required bool isDaily,
+    required bool weeklyExclusiveEnd,
+  }) async {
+    final activeMedIds = await _getActiveMedicationIds(userId);
+    if (activeMedIds.isEmpty) {
+      return const DoseStats(
+        taken: 0,
+        missed: 0,
+        pending: 0,
+        total: 0,
+        medStats: [],
+      );
+    }
+
+    final medDocs = <String, Map<String, dynamic>>{};
+    for (final medId in activeMedIds) {
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('medications')
+            .doc(medId)
+            .get();
+        if (doc.exists && doc.data() != null) {
+          medDocs[medId] = doc.data()!;
+        }
+      } catch (_) {}
+    }
+
+    final periodStart = start ?? DateTime.now();
+    final periodEnd = end ?? DateTime.now();
+    final now = DateTime.now();
+
+    var filteredLogs = <Map<String, dynamic>>[];
+    try {
+      var query = FirebaseFirestore.instance
+          .collection('reminder_logs')
+          .where('userId', isEqualTo: userId)
+          .where('scheduledTime',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(periodStart));
+
+      query = weeklyExclusiveEnd
+          ? query.where('scheduledTime',
+              isLessThan: Timestamp.fromDate(periodEnd))
+          : query.where('scheduledTime',
+              isLessThanOrEqualTo: Timestamp.fromDate(periodEnd));
+
+      final logSnap = await query.get();
+      filteredLogs = logSnap.docs
+          .where((doc) =>
+              activeMedIds.contains(doc.data()['medicationId'] as String? ?? ''))
+          .map((doc) => doc.data())
+          .toList();
+    } catch (_) {}
+
+    var taken = 0;
+    var missed = 0;
+    var pending = 0;
+    final medMap = <String, Map<String, int>>{};
+
+    final startDay =
+        DateTime(periodStart.year, periodStart.month, periodStart.day);
+    final endDay = DateTime(periodEnd.year, periodEnd.month, periodEnd.day);
+
+    for (final medId in activeMedIds) {
+      final med = medDocs[medId];
+      if (med == null) continue;
+      final name = med['name'] as String? ?? 'Medication';
+      final times = List<String>.from(med['scheduledTimes'] as List? ?? []);
+      medMap.putIfAbsent(name, () => {'taken': 0, 'missed': 0, 'pending': 0});
+
+      for (var day = startDay;
+          !day.isAfter(endDay);
+          day = day.add(const Duration(days: 1))) {
+        for (final timeStr in times) {
+          final scheduledAt = _parseScheduledTime(timeStr, day);
+          if (scheduledAt == null) continue;
+          if (scheduledAt.isBefore(periodStart)) continue;
+          if (weeklyExclusiveEnd) {
+            if (!scheduledAt.isBefore(periodEnd)) continue;
+          } else if (scheduledAt.isAfter(periodEnd)) {
+            continue;
+          }
+
+          final log = _findLogForSchedule(filteredLogs, medId, scheduledAt);
+          var status = 'upcoming';
+          if (log != null) {
+            status = (log['status'] as String? ?? 'confirmed').toLowerCase();
+            if (status == 'taken') status = 'confirmed';
+          } else if (!scheduledAt.isAfter(now)) {
+            status = 'missed';
+          }
+
+          if (status == 'confirmed') {
+            taken++;
+            medMap[name]!['taken'] = medMap[name]!['taken']! + 1;
+          } else if (status == 'missed' || status == 'skipped') {
+            missed++;
+            medMap[name]!['missed'] = medMap[name]!['missed']! + 1;
+          } else {
+            pending++;
+            medMap[name]!['pending'] = medMap[name]!['pending']! + 1;
+          }
+        }
+      }
+    }
+
+    int total;
+    if (isDaily) {
+      total = 0;
+      for (final medId in activeMedIds) {
+        final times = List<String>.from(
+            medDocs[medId]?['scheduledTimes'] as List? ?? []);
+        total += times.length;
+      }
+    } else {
+      total = taken + missed + pending;
+    }
+
+    final medStats = medMap.entries.map((e) {
+      final t = e.value['taken']! + e.value['missed']! + e.value['pending']!;
+      final pct = t == 0 ? 0 : ((e.value['taken']! / t) * 100).round();
+      return MedStat(
+        name: e.key,
+        taken: e.value['taken']!,
+        missed: e.value['missed']!,
+        pending: e.value['pending']!,
+        total: t,
+        adherencePct: pct,
+      );
+    }).toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+
+    return DoseStats(
+      taken: taken,
+      missed: missed,
+      pending: pending,
+      total: total,
+      medStats: medStats,
+    );
+  }
+
+  DateTime? _parseScheduledTime(String timeStr, DateTime day) {
+    final parsed = MedicationScheduleHelper.parseTimeOnDay(timeStr, day);
+    if (parsed != null) return parsed;
+
+    final parts = timeStr.trim().split(':');
+    if (parts.length == 2) {
+      final h = int.tryParse(parts[0]);
+      final m = int.tryParse(parts[1]);
+      if (h != null && m != null) {
+        return DateTime(day.year, day.month, day.day, h, m);
+      }
+    }
+    return null;
+  }
+
+  Map<String, dynamic>? _findLogForSchedule(
+    List<Map<String, dynamic>> logs,
+    String medId,
+    DateTime scheduledAt,
+  ) {
+    for (final log in logs) {
+      if ((log['medicationId'] as String? ?? '') != medId) continue;
+      final scheduled = log['scheduledTime'];
+      if (scheduled is! Timestamp) continue;
+      final dt = scheduled.toDate();
+      if (dt.year == scheduledAt.year &&
+          dt.month == scheduledAt.month &&
+          dt.day == scheduledAt.day &&
+          dt.hour == scheduledAt.hour &&
+          dt.minute == scheduledAt.minute) {
+        return log;
+      }
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<FamilyProvider>(
@@ -101,7 +308,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final range = _periodRange();
 
     return FutureBuilder<DoseStats>(
-      future: _reportService.fetchDoseStats(userId, start: range.$1, end: range.$2),
+      future: _fetchReportStats(
+        userId,
+        start: range.$1,
+        end: range.$2,
+        isDaily: _tab == 0,
+        weeklyExclusiveEnd: _tab == 1,
+      ),
       builder: (context, statsSnapshot) {
         final stats = statsSnapshot.data;
         final hasData = stats != null && !stats.isEmpty;

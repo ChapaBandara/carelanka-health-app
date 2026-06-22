@@ -96,15 +96,31 @@ class HealthRecordService {
         }
       }
 
-      final doctor = (r['doctor'] ?? '').toLowerCase();
-      final dq = doctorQuery.trim().toLowerCase();
-      if (dq.isNotEmpty && !doctor.contains(dq)) return false;
+      final doctor = (r['doctor'] ?? '').toLowerCase()
+          .replaceAll(RegExp(r'\s+'), '')
+          .replaceAll('.', '');
+      final dq = doctorQuery.trim().toLowerCase()
+          .replaceAll(RegExp(r'\s+'), '')
+          .replaceAll('.', '');
+      if (dq.isNotEmpty && !doctor.contains(dq) && !dq.contains(doctor)) {
+        return false;
+      }
 
-      final diagnosis = (r['diagnosis'] ?? '').toLowerCase();
-      final condition = (r['condition'] ?? '').toLowerCase();
+      final diagnosis = (r['diagnosis'] ?? '').toLowerCase()
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      final condition = (r['condition'] ?? '').toLowerCase()
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      final notes = (r['notes'] ?? '').toLowerCase();
       final diagQ = diagnosisQuery.trim().toLowerCase();
       if (diagQ.isNotEmpty && diagQ != 'all') {
-        if (!diagnosis.contains(diagQ) && !condition.contains(diagQ)) return false;
+        final matchesDiagnosis = diagnosis.contains(diagQ);
+        final matchesCondition = condition.contains(diagQ);
+        final matchesNotes = notes.contains(diagQ);
+        if (!matchesDiagnosis && !matchesCondition && !matchesNotes) {
+          return false;
+        }
       }
 
       if (attachOnly) {

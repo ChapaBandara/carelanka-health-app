@@ -802,127 +802,142 @@ class ReminderService {
   /// dose that was due more than 60 minutes ago with no existing log.
   Future<void> checkMissedReminders(String userId) async {
     try {
-      final medsSnap = await _firestore
+      final now = DateTime.now();
+      final todayStart = DateTime(now.year, now.month, now.day);
+
+      final medSnap = await _firestore
           .collection(FirebaseCollections.medications)
           .where('userId', isEqualTo: userId)
           .where('active', isEqualTo: true)
           .get();
 
-      final now = DateTime.now();
-      final todayBase = DateTime(now.year, now.month, now.day);
+      for (final medDoc in medSnap.docs) {
+        final data = medDoc.data();
+        final medId = medDoc.id;
+        final medName = data['name'] as String? ?? '';
+        final illnessId = data['illnessId'] as String? ?? '';
+        final times = List<String>.from(data['scheduledTimes'] as List? ?? []);
 
-      for (final medDoc in medsSnap.docs) {
-        try {
-          final data = medDoc.data();
-          final medId = medDoc.id;
-          final illnessId = data['illnessId'] as String? ?? '';
-          final medName = data['name'] as String? ?? 'Medication';
-          final dosage = data['dosage'] as String? ?? '';
-          final times =
-              List<String>.from(data['scheduledTimes'] as List? ?? []);
-
-          for (final timeStr in times) {
-            try {
-              // Parse both "HH:mm" (24-hr) and "h:mm a" (12-hr AM/PM).
-              final scheduledDateTime =
-                  _parseScheduledTime(timeStr.trim(), todayBase);
-              if (scheduledDateTime == null) continue;
-
-              // Only consider doses that fired more than 60 minutes ago.
-              if (now.difference(scheduledDateTime).inMinutes <= 60) continue;
-
-              // Check for any existing log within ±5 minutes.
-              final windowStart =
-                  scheduledDateTime.subtract(const Duration(minutes: 5));
-              final windowEnd =
-                  scheduledDateTime.add(const Duration(minutes: 5));
-
-              final logsSnap = await _col
-                  .where('userId', isEqualTo: userId)
-                  .where('medicationId', isEqualTo: medId)
-                  .where('scheduledTime',
-                      isGreaterThanOrEqualTo:
-                          Timestamp.fromDate(windowStart))
-                  .where('scheduledTime',
-                      isLessThanOrEqualTo: Timestamp.fromDate(windowEnd))
-                  .get();
-
-              if (logsSnap.docs.isNotEmpty) continue;
-
-              // No log found — record as missed.
-              await logReminderAction(
-                userId: userId,
-                medicationId: medId,
-                illnessId: illnessId,
-                scheduledTime: scheduledDateTime,
-                status: 'missed',
-              );
-
-              await createMissedDoseAlert(
-                userId: userId,
-                medicationName: medName,
-                dosage: dosage,
-                scheduledTime: scheduledDateTime,
-              );
-            } catch (_) {
-              continue;
-            }
+        if (illnessId.isNotEmpty) {
+          try {
+            final illnessDoc = await _firestore
+                .collection(FirebaseCollections.illnesses)
+                .doc(illnessId)
+                .get();
+            final illnessStatus =
+                illnessDoc.data()?['status'] as String? ?? 'active';
+            if (illnessStatus == 'completed') continue;
+          } catch (_) {
+            continue;
           }
-        } catch (_) {
-          continue;
+        }
+
+        for (final timeStr in times) {
+          final parsed = _parseTimeString(timeStr);
+          if (parsed == null) continue;
+
+          final scheduledDt = DateTime(
+            todayStart.year,
+            todayStart.month,
+            todayStart.day,
+            parsed.$1,
+            parsed.$2,
+          );
+
+          if (scheduledDt.isAfter(now.subtract(const Duration(minutes: 60)))) {
+            continue;
+          }
+
+          final existingLog = await _col
+              .where('userId', isEqualTo: userId)
+              .where('medicationId', isEqualTo: medId)
+              .where('scheduledTime',
+                  isGreaterThanOrEqualTo: Timestamp.fromDate(
+                      scheduledDt.subtract(const Duration(minutes: 5))))
+              .where('scheduledTime',
+                  isLessThanOrEqualTo: Timestamp.fromDate(
+                      scheduledDt.add(const Duration(minutes: 5))))
+              .limit(1)
+              .get();
+
+          if (existingLog.docs.isNotEmpty) continue;
+
+          final condition = await _getIllnessName(illnessId);
+
+          final docRef = _col.doc();
+          await docRef.set({
+            'userId': userId,
+            'medicationId': medId,
+            'medicationName': medName,
+            'condition': condition,
+            'scheduledTime': Timestamp.fromDate(scheduledDt),
+            'actualResponseTime': null,
+            'status': 'missed',
+            'responseLatencyMinutes': 0,
+            'createdAt': Timestamp.fromDate(now),
+          });
+
+          await _createMissedDoseAlert(userId, medName, timeStr);
         }
       }
     } catch (_) {}
   }
 
-  /// Creates a Firestore alert and fires a local notification for a missed dose.
-  Future<void> createMissedDoseAlert({
-    required String userId,
-    required String medicationName,
-    required String dosage,
-    required DateTime scheduledTime,
-  }) async {
-    final timeStr = DateFormat('h:mm a').format(scheduledTime);
-    final doseLabel =
-        [medicationName, if (dosage.isNotEmpty) dosage].join(' ');
-
+  Future<String> _getIllnessName(String illnessId) async {
+    if (illnessId.isEmpty) return '';
     try {
+      final doc = await _firestore
+          .collection(FirebaseCollections.illnesses)
+          .doc(illnessId)
+          .get();
+      return doc.data()?['illnessName'] as String? ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  Future<void> _createMissedDoseAlert(
+    String userId,
+    String medName,
+    String time,
+  ) async {
+    try {
+      final now = DateTime.now();
+      final todayStart = DateTime(now.year, now.month, now.day);
+
+      final existing = await _firestore
+          .collection(FirebaseCollections.alerts)
+          .where('userId', isEqualTo: userId)
+          .where('type', isEqualTo: 'missed')
+          .where('createdAt',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
+          .get();
+
+      final alreadyExists = existing.docs.any((d) =>
+          (d.data()['message'] as String? ?? '').contains(medName));
+      if (alreadyExists) return;
+
       await _firestore.collection(FirebaseCollections.alerts).add({
         'userId': userId,
         'type': 'missed',
-        'message': 'You missed your $timeStr dose of $doseLabel',
+        'message': 'Missed $medName dose scheduled for $time today.',
         'read': false,
-        'createdAt': Timestamp.fromDate(DateTime.now()),
+        'createdAt': Timestamp.fromDate(now),
       });
-    } catch (_) {}
-
-    try {
-      await NotificationService.instance.showMissedDoseNotification(
-        title: 'Missed Dose',
-        body: 'You missed your $medicationName dose scheduled at $timeStr',
-      );
     } catch (_) {}
   }
 
-  /// Parses a time string in either "HH:mm" (24-hr) or "h:mm a" (12-hr)
-  /// format and returns a [DateTime] on [day].
-  DateTime? _parseScheduledTime(String timeStr, DateTime day) {
-    // Try 12-hr format first: "8:00 AM", "12:30 PM"
-    try {
-      final parsed = DateFormat('h:mm a').parse(timeStr);
-      return DateTime(day.year, day.month, day.day, parsed.hour, parsed.minute);
-    } catch (_) {}
-
-    // Fall back to 24-hr "HH:mm": "08:00", "20:30"
-    final parts = timeStr.split(':');
-    if (parts.length == 2) {
-      final h = int.tryParse(parts[0]);
-      final m = int.tryParse(parts[1]);
-      if (h != null && m != null) {
-        return DateTime(day.year, day.month, day.day, h, m);
-      }
-    }
-    return null;
+  (int, int)? _parseTimeString(String timeStr) {
+    final lower = timeStr.toLowerCase().trim();
+    final match =
+        RegExp(r'(\d{1,2}):(\d{2})\s*(am|pm)?').firstMatch(lower);
+    if (match == null) return null;
+    var hour = int.tryParse(match.group(1)!) ?? 0;
+    final minute = int.tryParse(match.group(2)!) ?? 0;
+    final ampm = match.group(3);
+    if (ampm == 'pm' && hour < 12) hour += 12;
+    if (ampm == 'am' && hour == 12) hour = 0;
+    return (hour, minute);
   }
 
   // ---------------------------------------------------------------------------

@@ -19,10 +19,13 @@ class FamilyProvider extends ChangeNotifier {
   String activeUid(String ownUid) {
     if (_activeMember == null) return ownUid;
     final linkedUid = _activeMember!['linkedUserId'] ?? '';
-    if (linkedUid.isNotEmpty) return linkedUid;
-    // Dependent profile — no separate account, use owner's UID
-    // but filter by profileId in future
-    return ownUid;
+    // If no linked account, this is a dependent profile.
+    // For dependents, we cannot show their separate data
+    // because they share the owner's Firestore data.
+    if (linkedUid.isEmpty) {
+      return ownUid; // dependent uses owner's data
+    }
+    return linkedUid;
   }
 
   void switchToMember(Map<String, String> member) {
