@@ -52,6 +52,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       _checkAndSendPeriodReport(uid);
 
+      // Show a one-time battery optimization hint for Samsung / MIUI / OPPO
+      // where background full-screen notifications need manual exemption.
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final hintKey = 'battery_opt_hint_shown_$uid';
+        final shown = prefs.getBool(hintKey) ?? false;
+        if (!shown && mounted) {
+          await prefs.setBool(hintKey, true);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text(
+                  'For medication alarms to work on the locked screen: '
+                  'Settings → Apps → CareLanka → Battery → Unrestricted',
+                ),
+                duration: const Duration(seconds: 8),
+                backgroundColor: AppColors.primaryTeal,
+                action: SnackBarAction(
+                  label: 'OK',
+                  textColor: Colors.white,
+                  onPressed: () {},
+                ),
+              ),
+            );
+          }
+        }
+      } catch (_) {}
+
       // Load checkup banner state — silently, never surfacing errors.
       try {
         final service = CheckupService();
@@ -139,18 +167,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final times =
             List<String>.from(data['scheduledTimes'] as List? ?? []);
         final name = data['name'] as String? ?? '';
-        if (times.isNotEmpty) {
-          await NotificationService.instance.scheduleMedicationReminders(
-            medicationId: doc.id,
-            title: name,
-            timeStrings: times,
-            dosage: data['dosage'] as String? ?? '',
-            condition: data['condition'] as String? ?? '',
-            mealTiming: data['mealTiming'] as String? ?? 'anytime',
-            userId: userId,
-            illnessId: data['illnessId'] as String? ?? '',
-          );
+        final illnessId = data['illnessId'] as String? ?? '';
+
+        if (times.isEmpty) continue;
+
+        // Fetch illness name — medications store illnessId, not a condition field.
+        String illnessName = '';
+        if (illnessId.isNotEmpty) {
+          try {
+            final illnessDoc = await FirebaseFirestore.instance
+                .collection('illnesses')
+                .doc(illnessId)
+                .get();
+            illnessName =
+                illnessDoc.data()?['illnessName'] as String? ?? '';
+          } catch (_) {}
         }
+
+        await NotificationService.instance.scheduleMedicationReminders(
+          medicationId: doc.id,
+          title: name,
+          timeStrings: times,
+          dosage: data['dosage'] as String? ?? '',
+          condition: illnessName,
+          mealTiming: data['mealTiming'] as String? ?? 'anytime',
+          userId: userId,
+          illnessId: illnessId,
+        );
       }
     } catch (_) {}
   }

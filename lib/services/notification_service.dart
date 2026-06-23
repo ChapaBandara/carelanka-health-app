@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/firebase_options.dart';
 import 'package:carelanka_app/models/daily_dose_item.dart';
 import 'package:carelanka_app/services/adherence_service.dart';
@@ -162,6 +163,17 @@ class NotificationService {
     await androidPlugin?.requestNotificationsPermission();
     await androidPlugin?.requestExactAlarmsPermission();
 
+    // On Android 14+ (API 34+) USE_FULL_SCREEN_INTENT is a runtime permission.
+    // We request it via a MethodChannel call; if the channel is not registered
+    // on the native side the call is silently ignored.
+    try {
+      const fsiChannel = MethodChannel('carelanka/permissions');
+      await fsiChannel
+          .invokeMethod('requestFullScreenIntentPermission');
+    } catch (_) {
+      // Not implemented on this Android version or device — safe to ignore.
+    }
+
     _initialized = true;
   }
 
@@ -243,7 +255,7 @@ class NotificationService {
 
       Future.delayed(const Duration(milliseconds: 500), () {
         notificationNavigatorKey.currentState
-            ?.pushNamed('/taking-medication', arguments: dose);
+            ?.pushNamed(AppRoutes.takingMedication, arguments: dose);
       });
     } catch (_) {}
   }
