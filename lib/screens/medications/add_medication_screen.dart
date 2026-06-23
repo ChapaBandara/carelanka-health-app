@@ -650,8 +650,13 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
         try {
           await NotificationService.instance.scheduleMedicationReminders(
             medicationId: medicationId,
-            title: '${_name.text.trim()} ${_dose.text.trim()}',
+            title: _name.text.trim(),
             timeStrings: times,
+            dosage: _dose.text.trim(),
+            condition: _illnessName,
+            mealTiming: _mealTimingValue(_mealTiming),
+            userId: userId,
+            illnessId: illnessId,
           );
         } catch (_) {}
       }

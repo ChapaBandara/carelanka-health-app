@@ -1,10 +1,10 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
-import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/utils/active_uid.dart';
-import 'package:carelanka_app/models/daily_dose_item.dart';
 import 'package:carelanka_app/providers/family_provider.dart';
 import 'package:carelanka_app/services/reminder_service.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -21,116 +21,75 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tab = TabController(length: 4, vsync: this);
   bool _searchOpen = false;
-  List<Map<String, dynamic>> _allLogs = [];
-  List<Map<String, dynamic>> _filteredLogs = [];
-  List<Map<String, dynamic>>? _lastStreamSnapshot;
+  String _searchQuery = '';
   final _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _searchController.addListener(_applyFilter);
+    _searchController.addListener(() {
+      setState(() => _searchQuery = _searchController.text.toLowerCase().trim());
+    });
+    // FIX 2: Auto-log missed doses when the history screen opens.
+    _autoLogMissedDoses();
+  }
+
+  /// Auto-logs any missed doses for the current user when the screen opens.
+  Future<void> _autoLogMissedDoses() async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null || uid.isEmpty) return;
+      await ReminderService().checkMissedReminders(uid);
+    } catch (_) {
+      // Silent — never surface to user.
+    }
   }
 
   @override
   void dispose() {
-    _searchController.removeListener(_applyFilter);
-    _tab.dispose();
     _searchController.dispose();
+    _tab.dispose();
     super.dispose();
   }
 
-  void _applyFilter() {
-    final query = _searchController.text.toLowerCase().trim();
-    setState(() {
-      if (query.isEmpty) {
-        _filteredLogs = _allLogs;
-      } else {
-        _filteredLogs = _allLogs.where((log) {
-          final name = (log['medicationName'] ?? '').toString().toLowerCase();
-          final condition = (log['condition'] ?? '').toString().toLowerCase();
-          return name.contains(query) || condition.contains(query);
-        }).toList();
-      }
-    });
-  }
+  /// Converts a Firestore doc snapshot to a display map.
+  Map<String, dynamic> _docToDisplay(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final d = doc.data();
+    final scheduledRaw = d['scheduledTime'];
+    final actualRaw = d['actualResponseTime'];
+    final DateTime? scheduledAt =
+        scheduledRaw is Timestamp ? scheduledRaw.toDate() : null;
+    final DateTime? actualAt =
+        actualRaw is Timestamp ? actualRaw.toDate() : null;
 
-  DateTime? _scheduledAt(Map<String, dynamic> entry) {
-    final scheduled = entry['scheduledTime'];
-    if (scheduled is DateTime) return scheduled;
-    return null;
-  }
-
-  String _dateGroupFor(DateTime scheduledAt) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yday = today.subtract(const Duration(days: 1));
-    final day = DateTime(scheduledAt.year, scheduledAt.month, scheduledAt.day);
-
-    if (day == today) {
-      return 'Today';
-    } else if (day == yday) {
-      return 'Yesterday';
-    } else {
-      return DateFormat.yMMMMd().format(day);
-    }
-  }
-
-  Map<String, String> _entryToUiMap(Map<String, dynamic> data) {
-    final scheduledAt = _scheduledAt(data);
-    final action = data['actualResponseTime'];
-    final status = (data['status'] as String? ?? 'confirmed').toLowerCase();
-    final latency = (data['responseLatencyMinutes'] as int?) ?? 0;
-
-    String actionTime = '—';
-    if (action is DateTime) {
-      actionTime = DateFormat.jm().format(action);
-    }
+    var status = (d['status'] as String? ?? 'confirmed').toLowerCase();
+    if (status == 'taken') status = 'confirmed';
 
     return {
-      'medication': data['medicationName']?.toString() ?? '',
-      'condition': data['condition']?.toString() ?? '',
-      'scheduled': scheduledAt != null ? DateFormat.jm().format(scheduledAt) : '—',
-      'actionTime': actionTime,
+      'logId': doc.id,
+      'medicationId': d['medicationId'] as String? ?? '',
+      'medicationName': d['medicationName'] as String? ??
+          d['name'] as String? ??
+          'Medication',
+      'medicationDosage': d['medicationDosage'] as String? ??
+          d['dosage'] as String? ??
+          '',
+      'condition': d['condition'] as String? ?? '',
+      'scheduledAt': scheduledAt,
+      'actualAt': actualAt,
       'status': status,
-      'dateGroup': scheduledAt != null ? _dateGroupFor(scheduledAt) : 'Earlier',
-      'timing': latency > 0 ? 'late' : 'on_time',
-      'lateBy': latency > 0 ? '+$latency min' : 'On time',
+      'responseLatencyMinutes': d['responseLatencyMinutes'] as int? ?? 0,
+      'snoozeUntil': d['snoozeUntil'] is Timestamp
+          ? (d['snoozeUntil'] as Timestamp).toDate()
+          : null,
     };
   }
 
-  DailyDoseItem _entryToDailyDose(Map<String, dynamic> data) {
-    final scheduledAt = _scheduledAt(data) ?? DateTime.now();
-    var status = (data['status'] as String? ?? 'pending').toLowerCase();
-    if (status == 'pending') {
-      status = scheduledAt.isBefore(DateTime.now()) ? 'missed' : 'upcoming';
-    }
-    final actual = data['actualResponseTime'];
-    String? actionLabel;
-    if (actual is DateTime) {
-      actionLabel = DateFormat.jm().format(actual);
-    }
-
-    DateTime? snoozeUntil;
-    final snooze = data['snoozeUntil'];
-    if (snooze is DateTime) {
-      snoozeUntil = snooze;
-    }
-
-    return DailyDoseItem(
-      medicationId: data['medicationId']?.toString() ?? '',
-      medicationName: data['medicationName']?.toString() ?? 'Medication',
-      dosage: data['dosage']?.toString() ?? '',
-      condition: data['condition']?.toString() ?? '',
-      scheduledLabel: data['scheduledLabel']?.toString() ?? DateFormat.jm().format(scheduledAt),
-      scheduledAt: scheduledAt,
-      status: status,
-      actionLabel: actionLabel,
-      mealTiming: data['mealTiming']?.toString() ?? '',
-      latencyMinutes: data['responseLatencyMinutes'] as int?,
-      logId: data['logId']?.toString(),
-      snoozeUntil: snoozeUntil,
-    );
+  bool _matchesSearch(Map<String, dynamic> item) {
+    if (_searchQuery.isEmpty) return true;
+    final name = (item['medicationName'] as String).toLowerCase();
+    final condition = (item['condition'] as String).toLowerCase();
+    return name.contains(_searchQuery) || condition.contains(_searchQuery);
   }
 
   @override
@@ -138,113 +97,216 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
     return Consumer<FamilyProvider>(
       builder: (context, _, _) {
         final userId = context.activeUid;
-        return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: ReminderService().watchTodayLogsDeduped(userId),
-      builder: (context, snapshot) {
-        if (snapshot.hasData && !identical(snapshot.data, _lastStreamSnapshot)) {
-          _lastStreamSnapshot = snapshot.data;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            _allLogs = snapshot.data!;
-            _applyFilter();
-          });
-        }
-
-        final reminders = _filteredLogs.map(_entryToUiMap).toList();
-        final historyDoses = _filteredLogs.map(_entryToDailyDose).toList();
+        final service = ReminderService();
 
         return Scaffold(
-              backgroundColor: AppColors.background,
-              appBar: AppBar(
-                leading: _searchOpen
-                    ? IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () {
-                          setState(() => _searchOpen = false);
-                          _searchController.clear();
-                        },
-                      )
-                    : IconButton(
-                        icon: const Icon(Icons.arrow_back_ios_new, size: 20),
-                        onPressed: () => Navigator.maybePop(context),
-                      ),
-                title: _searchOpen
-                    ? TextField(
-                        controller: _searchController,
-                        autofocus: true,
-                        decoration: const InputDecoration(
-                          hintText: 'Search reminders...',
-                          border: InputBorder.none,
-                        ),
-                      )
-                    : const Text('Reminder History'),
-                centerTitle: !_searchOpen,
-                actions: [
-                  if (!_searchOpen)
-                    IconButton(
-                      icon: const Icon(Icons.search),
-                      onPressed: () => setState(() => _searchOpen = true),
+          backgroundColor: AppColors.background,
+          appBar: AppBar(
+            leading: _searchOpen
+                ? IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () {
+                      setState(() => _searchOpen = false);
+                      _searchController.clear();
+                    },
+                  )
+                : IconButton(
+                    icon: const Icon(Icons.arrow_back_ios_new, size: 20),
+                    onPressed: () => Navigator.maybePop(context),
+                  ),
+            title: _searchOpen
+                ? TextField(
+                    controller: _searchController,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: 'Search reminders...',
+                      border: InputBorder.none,
                     ),
-                ],
-                bottom: TabBar(
-                  controller: _tab,
-                  labelColor: AppColors.navy,
-                  unselectedLabelColor: AppColors.textGrey,
-                  indicatorColor: AppColors.navy,
-                  indicatorWeight: 3,
-                  labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-                  unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                  tabs: const [
-                    Tab(text: 'All'),
-                    Tab(text: 'Confirmed'),
-                    Tab(text: 'Missed'),
-                    Tab(text: 'Snoozed'),
-                  ],
+                  )
+                : const Text('Reminder History'),
+            centerTitle: !_searchOpen,
+            actions: [
+              if (!_searchOpen)
+                IconButton(
+                  icon: const Icon(Icons.search),
+                  onPressed: () => setState(() => _searchOpen = true),
                 ),
+            ],
+            bottom: TabBar(
+              controller: _tab,
+              labelColor: AppColors.navy,
+              unselectedLabelColor: AppColors.textGrey,
+              indicatorColor: AppColors.navy,
+              indicatorWeight: 3,
+              labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+              unselectedLabelStyle:
+                  const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+              tabs: const [
+                Tab(text: 'All'),
+                Tab(text: 'Confirmed'),
+                Tab(text: 'Missed'),
+                Tab(text: 'Snoozed'),
+              ],
+            ),
+          ),
+          body: TabBarView(
+            controller: _tab,
+            children: [
+              // ── ALL TAB ───────────────────────────────────────────────────
+              _FirestoreLogTab(
+                stream: service.watchAllReminderLogs(userId),
+                docToDisplay: _docToDisplay,
+                matchesSearch: _matchesSearch,
+                filterStatus: null,
+                emptyIcon: Icons.history,
+                emptyTitle: 'No reminder history yet',
+                emptySubtitle:
+                    'When you take, miss, or snooze doses, they will appear here.',
               ),
-              body: TabBarView(
-                controller: _tab,
-                children: [
-                  _AllTab(reminders: reminders),
-                  _ConfirmedTab(doses: historyDoses),
-                  _MissedTab(doses: historyDoses.where((d) => d.status == 'missed').toList()),
-                  _SnoozedTab(doses: historyDoses.where((d) => d.status == 'snoozed').toList()),
-                ],
+              // ── CONFIRMED TAB ─────────────────────────────────────────────
+              _FirestoreLogTab(
+                stream: service.watchReminderLogsByStatus(userId, 'confirmed'),
+                docToDisplay: _docToDisplay,
+                matchesSearch: _matchesSearch,
+                filterStatus: 'confirmed',
+                emptyIcon: Icons.check_circle_outline,
+                emptyTitle: 'No confirmed doses yet',
+                emptySubtitle:
+                    'Confirmed doses will appear here after you mark them as taken.',
               ),
-            );
-      },
-    );
+              // ── MISSED TAB ────────────────────────────────────────────────
+              _FirestoreLogTab(
+                stream: service.watchReminderLogsByStatus(userId, 'missed'),
+                docToDisplay: _docToDisplay,
+                matchesSearch: _matchesSearch,
+                filterStatus: 'missed',
+                emptyIcon: Icons.check_circle_outline,
+                emptyTitle: 'No missed doses yet',
+                emptySubtitle: 'You are on track! No missed medications found.',
+              ),
+              // ── SNOOZED TAB ───────────────────────────────────────────────
+              _FirestoreLogTab(
+                stream: service.watchReminderLogsByStatus(userId, 'snoozed'),
+                docToDisplay: _docToDisplay,
+                matchesSearch: _matchesSearch,
+                filterStatus: 'snoozed',
+                emptyIcon: Icons.schedule,
+                emptyTitle: 'No snoozed doses yet',
+                emptySubtitle:
+                    'Snoozed medications will appear here until you take them.',
+              ),
+            ],
+          ),
+        );
       },
     );
   }
 }
 
-class _AllTab extends StatelessWidget {
-  const _AllTab({required this.reminders});
+// ─────────────────────────────────────────────────────────────────────────────
+// Generic Firestore-backed tab widget
+// ─────────────────────────────────────────────────────────────────────────────
 
-  final List<Map<String, String>> reminders;
+class _FirestoreLogTab extends StatelessWidget {
+  const _FirestoreLogTab({
+    required this.stream,
+    required this.docToDisplay,
+    required this.matchesSearch,
+    required this.filterStatus,
+    required this.emptyIcon,
+    required this.emptyTitle,
+    required this.emptySubtitle,
+  });
+
+  final Stream<QuerySnapshot<Map<String, dynamic>>> stream;
+  final Map<String, dynamic> Function(QueryDocumentSnapshot<Map<String, dynamic>>) docToDisplay;
+  final bool Function(Map<String, dynamic>) matchesSearch;
+  final String? filterStatus;
+  final IconData emptyIcon;
+  final String emptyTitle;
+  final String emptySubtitle;
 
   @override
   Widget build(BuildContext context) {
-    if (reminders.isEmpty) {
-      return const EmptyListPlaceholder(
-        icon: Icons.history,
-        title: 'No reminder history yet',
-        subtitle: 'When you take, miss, or snooze doses, they will appear here.',
-      );
-    }
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-    final groups = <String, List<Map<String, String>>>{};
-    for (final r in reminders) {
-      groups.putIfAbsent(r['dateGroup'] ?? 'Earlier', () => []).add(r);
+        if (snapshot.hasError) {
+          return Center(
+            child: Text(
+              'Failed to load history.',
+              style: TextStyle(color: AppColors.textGrey),
+            ),
+          );
+        }
+
+        final docs = snapshot.data?.docs ?? [];
+        final items = docs
+            .map(docToDisplay)
+            .where(matchesSearch)
+            .toList();
+
+        if (items.isEmpty) {
+          return EmptyListPlaceholder(
+            icon: emptyIcon,
+            title: emptyTitle,
+            subtitle: emptySubtitle,
+          );
+        }
+
+        return _GroupedLogList(items: items);
+      },
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Grouped list by date
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _GroupedLogList extends StatelessWidget {
+  const _GroupedLogList({required this.items});
+
+  final List<Map<String, dynamic>> items;
+
+  String _dateGroupFor(DateTime scheduledAt) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yday = today.subtract(const Duration(days: 1));
+    final day =
+        DateTime(scheduledAt.year, scheduledAt.month, scheduledAt.day);
+
+    if (day == today) return 'Today';
+    if (day == yday) return 'Yesterday';
+    return DateFormat.yMMMMd().format(day);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Build ordered groups (preserves Firestore descending order).
+    final groups = <String, List<Map<String, dynamic>>>{};
+    final groupOrder = <String>[];
+
+    for (final item in items) {
+      final scheduled = item['scheduledAt'] as DateTime?;
+      final group = scheduled != null ? _dateGroupFor(scheduled) : 'Earlier';
+      if (!groups.containsKey(group)) {
+        groups[group] = [];
+        groupOrder.add(group);
+      }
+      groups[group]!.add(item);
     }
 
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-      itemCount: groups.length,
+      itemCount: groupOrder.length,
       itemBuilder: (context, index) {
-        final groupTitle = groups.keys.elementAt(index);
-        final items = groups[groupTitle]!;
+        final groupTitle = groupOrder[index];
+        final groupItems = groups[groupTitle]!;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -253,13 +315,19 @@ class _AllTab extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 10, top: 4),
               child: Text(
                 groupTitle,
-                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.textGrey),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                  color: AppColors.textGrey,
+                ),
               ),
             ),
-            ...items.map((r) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _HistoryCard(data: r),
-                )),
+            ...groupItems.map(
+              (item) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _ReminderLogCard(data: item),
+              ),
+            ),
           ],
         );
       },
@@ -267,512 +335,31 @@ class _AllTab extends StatelessWidget {
   }
 }
 
-/// CareLanka UI #29 — Confirmed daily medication list tab.
-class _ConfirmedTab extends StatelessWidget {
-  const _ConfirmedTab({required this.doses});
+// ─────────────────────────────────────────────────────────────────────────────
+// Reminder log card — shown in ALL tabs
+// ─────────────────────────────────────────────────────────────────────────────
 
-  final List<DailyDoseItem> doses;
+class _ReminderLogCard extends StatelessWidget {
+  const _ReminderLogCard({required this.data});
 
-  @override
-  Widget build(BuildContext context) {
-    final confirmed = doses.where((d) => d.status == 'confirmed').toList();
-    final upcoming = doses.where((d) => d.status == 'upcoming').toList();
-    // Only count doses that have actual log entries (confirmed or missed)
-    // not upcoming/pending ones
-    final loggedDoses = doses.where((d) =>
-        d.status == 'confirmed' ||
-        d.status == 'missed' ||
-        d.status == 'snoozed' ||
-        d.status == 'skipped').toList();
-    final total = loggedDoses.length;
-    final taken = confirmed.length;
-
-    if (total == 0) {
-      return const EmptyListPlaceholder(
-        icon: Icons.check_circle_outline,
-        title: 'No doses found',
-        subtitle: 'Add medications to start tracking your reminders.',
-      );
-    }
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: const Color(0xFFE0F7F7),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: AppColors.primaryTeal, width: 3),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  '$taken/$total',
-                  style: const TextStyle(
-                    color: AppColors.primaryTeal,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Great progress!',
-                      style: TextStyle(
-                        color: AppColors.primaryTeal,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 17,
-                      ),
-                    ),
-                        const SizedBox(height: 4),
-                        Text(
-                          taken == total && total > 0
-                              ? 'All $total doses taken today. Excellent work!'
-                              : 'You have taken $taken out of $total logged doses today.',
-                          style: const TextStyle(color: AppColors.textGrey, fontSize: 13, height: 1.35),
-                        ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (confirmed.isNotEmpty) ...[
-          const SizedBox(height: 20),
-          const _SectionHeader('CONFIRMED'),
-          const SizedBox(height: 10),
-          ...confirmed.map((d) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _DoseStatusCard(
-                  dose: d,
-                  accent: AppColors.primaryTeal,
-                  icon: Icons.check,
-                  iconBg: const Color(0xFFE0F7F7),
-                  statusLabel: 'Taken at ${d.actionLabel ?? DateFormat.jm().format(d.scheduledAt)}',
-                  statusColor: AppColors.primaryTeal,
-                ),
-              )),
-        ],
-        if (upcoming.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          const _SectionHeader('UPCOMING'),
-          const SizedBox(height: 10),
-          ...upcoming.map((d) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _DoseStatusCard(
-                  dose: d,
-                  accent: const Color(0xFFFFF9C4),
-                  icon: Icons.schedule,
-                  iconBg: const Color(0xFFFFF9C4),
-                  statusLabel: 'Scheduled for ${d.scheduledLabel}',
-                  statusColor: const Color(0xFF8D6E63),
-                  onTap: () => Navigator.pushNamed(context, AppRoutes.takingMedication, arguments: d),
-                ),
-              )),
-        ],
-      ],
-    );
-  }
-}
-
-/// CareLanka UI #31 — Missed daily medication list tab.
-class _MissedTab extends StatelessWidget {
-  const _MissedTab({required this.doses});
-
-  final List<DailyDoseItem> doses;
+  final Map<String, dynamic> data;
 
   @override
   Widget build(BuildContext context) {
-    if (doses.isEmpty) {
-      return const EmptyListPlaceholder(
-        icon: Icons.check_circle_outline,
-        title: 'No missed doses',
-        subtitle: 'You are on track for the selected reminder history.',
-      );
-    }
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFFEBEE),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Icon(Icons.warning_amber_rounded, color: AppColors.errorRed, size: 22),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Action Required',
-                      style: TextStyle(color: AppColors.errorRed, fontWeight: FontWeight.w800, fontSize: 15),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                          'You have ${doses.length} missed medication${doses.length == 1 ? '' : 's'} in this view. Please take them as soon as possible or mark them as skipped.',
-                          style: TextStyle(color: AppColors.errorRed.withValues(alpha: 0.85), fontSize: 13, height: 1.4),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 18),
-        ..._groupedDailyMissed(doses),
-      ],
-    );
-  }
-
-  List<Widget> _groupedDailyMissed(List<DailyDoseItem> doses) {
-    final groups = <String, List<DailyDoseItem>>{};
-    for (final dose in doses) {
-      final key = _dayLabel(dose.scheduledAt);
-      groups.putIfAbsent(key, () => []).add(dose);
-    }
-
-    return groups.entries.map((entry) {
-      final items = entry.value..sort((a, b) => b.scheduledAt.compareTo(a.scheduledAt));
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SectionHeader(entry.key),
-          const SizedBox(height: 10),
-          ...items.map((d) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _ActionDoseCard(dose: d, accent: AppColors.errorRed),
-              )),
-          const SizedBox(height: 6),
-        ],
-      );
-    }).toList();
-  }
-
-  String _dayLabel(DateTime date) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final day = DateTime(date.year, date.month, date.day);
-    if (day == today) return 'MISSED TODAY';
-    if (day == today.subtract(const Duration(days: 1))) return 'MISSED YESTERDAY';
-    return DateFormat('EEE, d MMM yyyy').format(day).toUpperCase();
-  }
-}
-
-/// CareLanka UI #33 — Snoozed daily medication list tab.
-class _SnoozedTab extends StatelessWidget {
-  const _SnoozedTab({required this.doses});
-
-  final List<DailyDoseItem> doses;
-
-  @override
-  Widget build(BuildContext context) {
-    if (doses.isEmpty) {
-      return const EmptyListPlaceholder(
-        icon: Icons.schedule,
-        title: 'No snoozed reminders',
-        subtitle: 'Snoozed medications will appear here until you take them.',
-      );
-    }
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFFF9C4),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Icon(Icons.schedule, color: Color(0xFF8D6E63), size: 22),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Snoozed Reminders',
-                      style: TextStyle(color: Color(0xFF8D6E63), fontWeight: FontWeight.w800, fontSize: 15),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'You have ${doses.length} medication${doses.length == 1 ? '' : 's'} currently snoozed. We will remind you again when the time comes.',
-                      style: const TextStyle(color: Color(0xFF8D6E63), fontSize: 13, height: 1.4),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 18),
-        const _SectionHeader('CURRENTLY SNOOZED'),
-        const SizedBox(height: 10),
-        ...doses.map((d) {
-          final remindAt = d.snoozeUntil != null ? DateFormat.jm().format(d.snoozeUntil!) : d.scheduledLabel;
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _ActionDoseCard(
-              dose: d,
-              accent: const Color(0xFF8D6E63),
-              statusLabel: 'Reminding again at $remindAt',
-            ),
-          );
-        }),
-      ],
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader(this.label);
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      label,
-      style: const TextStyle(
-        fontWeight: FontWeight.w800,
-        fontSize: 13,
-        color: AppColors.navy,
-        letterSpacing: 0.5,
-      ),
-    );
-  }
-}
-
-class _DoseStatusCard extends StatelessWidget {
-  const _DoseStatusCard({
-    required this.dose,
-    required this.accent,
-    required this.icon,
-    required this.iconBg,
-    required this.statusLabel,
-    required this.statusColor,
-    this.onTap,
-  });
-
-  final DailyDoseItem dose;
-  final Color accent;
-  final IconData icon;
-  final Color iconBg;
-  final String statusLabel;
-  final Color statusColor;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFEEEEEE)),
-          ),
-          child: IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(
-                  width: 5,
-                  decoration: BoxDecoration(
-                    color: accent,
-                    borderRadius: const BorderRadius.horizontal(left: Radius.circular(14)),
-                  ),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(color: iconBg, shape: BoxShape.circle),
-                          child: Icon(icon, color: statusColor, size: 22),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                dose.medicationName,
-                                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.navy),
-                              ),
-                              if (dose.dosage.isNotEmpty)
-                                Text(dose.dosage, style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
-                              const SizedBox(height: 6),
-                              Text(
-                                statusLabel,
-                                style: TextStyle(color: statusColor, fontSize: 13, fontWeight: FontWeight.w600),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ActionDoseCard extends StatelessWidget {
-  const _ActionDoseCard({
-    required this.dose,
-    required this.accent,
-    this.statusLabel,
-  });
-
-  final DailyDoseItem dose;
-  final Color accent;
-  final String? statusLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    final userId = context.activeUid;
-    final label = statusLabel ?? 'Missed at ${dose.scheduledLabel}';
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFEEEEEE)),
-      ),
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(
-              width: 5,
-              decoration: BoxDecoration(
-                color: accent,
-                borderRadius: const BorderRadius.horizontal(left: Radius.circular(14)),
-              ),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: const BoxDecoration(color: Color(0xFFFFEBEE), shape: BoxShape.circle),
-                          child: Icon(Icons.schedule, color: accent, size: 22),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                dose.medicationName,
-                                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.navy),
-                              ),
-                              if (dose.dosage.isNotEmpty)
-                                Text(dose.dosage, style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(label, style: TextStyle(color: accent, fontSize: 13, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: () => Navigator.pushNamed(context, AppRoutes.takingMedication, arguments: dose),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: AppColors.primaryTeal,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                            child: const Text('Take Now', style: TextStyle(fontWeight: FontWeight.w700)),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: () async {
-                              await ReminderService().logDose(
-                                userId: userId,
-                                medicationId: dose.medicationId,
-                                medicationName: dose.medicationName,
-                                condition: dose.condition,
-                                scheduledTime: dose.scheduledAt,
-                                status: 'skipped',
-                                existingLogId: dose.logId,
-                              );
-                            },
-                            style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFF42A5F5),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                            child: const Text('Mark as Skipped', style: TextStyle(fontWeight: FontWeight.w700)),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _HistoryCard extends StatelessWidget {
-  const _HistoryCard({required this.data});
-
-  final Map<String, String> data;
-
-  @override
-  Widget build(BuildContext context) {
-    final status = data['status'] ?? 'confirmed';
+    final status = data['status'] as String? ?? 'confirmed';
     final style = _statusStyle(status);
-    final badge = _badgeText(status, data);
+    final medicationName = data['medicationName'] as String? ?? 'Medication';
+    final medicationDosage = data['medicationDosage'] as String? ?? '';
+    final scheduledAt = data['scheduledAt'] as DateTime?;
+    final actualAt = data['actualAt'] as DateTime?;
+    final latency = data['responseLatencyMinutes'] as int? ?? 0;
+
+    final scheduledLabel =
+        scheduledAt != null ? DateFormat.jm().format(scheduledAt) : '—';
+    final actualLabel =
+        actualAt != null ? DateFormat.jm().format(actualAt) : null;
+
+    final badge = _badgeText(status, latency, actualLabel);
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -781,57 +368,86 @@ class _HistoryCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFEEEEEE)),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2)),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
         ],
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── Left status circle ─────────────────────────────────────────
           Container(
             width: 44,
             height: 44,
-            decoration: BoxDecoration(color: style.iconBg, shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: style.iconBg,
+              shape: BoxShape.circle,
+            ),
             child: Icon(style.icon, color: style.iconColor, size: 24),
           ),
           const SizedBox(width: 12),
+          // ── Center: name + times ───────────────────────────────────────
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        data['medication'] ?? '',
-                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: AppColors.textDark),
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: style.badgeBg,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        badge,
-                        style: TextStyle(color: style.badgeText, fontWeight: FontWeight.w700, fontSize: 11),
-                      ),
-                    ),
-                  ],
+                Text(
+                  medicationName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                    color: AppColors.textDark,
+                  ),
                 ),
-                if ((data['condition'] ?? '').isNotEmpty) ...[
-                  const SizedBox(height: 2),
+                if (medicationDosage.isNotEmpty) ...[
+                  const SizedBox(height: 1),
                   Text(
-                    data['condition']!,
-                    style: const TextStyle(fontStyle: FontStyle.italic, color: AppColors.textGrey, fontSize: 13),
+                    medicationDosage,
+                    style: const TextStyle(
+                      color: AppColors.textGrey,
+                      fontSize: 12,
+                    ),
                   ),
                 ],
-                const SizedBox(height: 8),
-                Text('Scheduled: ${data['scheduled'] ?? '—'}', style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
-                const SizedBox(height: 2),
-                Text(_actionLine(status, data), style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
+                const SizedBox(height: 4),
+                Text(
+                  'Scheduled: $scheduledLabel',
+                  style: const TextStyle(
+                    color: AppColors.textGrey,
+                    fontSize: 12,
+                  ),
+                ),
+                if (actualLabel != null) ...[
+                  const SizedBox(height: 1),
+                  Text(
+                    'Response: $actualLabel',
+                    style: const TextStyle(
+                      color: AppColors.textGrey,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
               ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          // ── Right badge ────────────────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: style.badgeBg,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              badge,
+              style: TextStyle(
+                color: style.badgeText,
+                fontWeight: FontWeight.w700,
+                fontSize: 11,
+              ),
             ),
           ),
         ],
@@ -839,22 +455,7 @@ class _HistoryCard extends StatelessWidget {
     );
   }
 
-  String _actionLine(String status, Map<String, String> data) {
-    switch (status) {
-      case 'missed':
-        return 'No response recorded';
-      case 'snoozed':
-        return 'Snoozed at: ${data['actionTime'] ?? '—'}';
-      case 'skipped':
-        return 'Skipped at: ${data['actionTime'] ?? '—'}';
-      case 'pending':
-        return 'Awaiting response';
-      default:
-        return 'Taken: ${data['actionTime'] ?? '—'}';
-    }
-  }
-
-  String _badgeText(String status, Map<String, String> data) {
+  String _badgeText(String status, int latency, String? actualLabel) {
     switch (status) {
       case 'missed':
         return 'No response';
@@ -865,9 +466,7 @@ class _HistoryCard extends StatelessWidget {
       case 'pending':
         return 'Pending';
       case 'confirmed':
-        final timing = data['timing'];
-        if (timing == 'on_time') return 'On time';
-        if (timing == 'late') return data['lateBy'] ?? '+10 min';
+        if (latency > 0) return '+$latency min';
         return 'On time';
       default:
         return '';
@@ -908,7 +507,7 @@ class _HistoryCard extends StatelessWidget {
           badgeBg: Color(0xFFE3F2FD),
           badgeText: Color(0xFF1565C0),
         );
-      default:
+      default: // confirmed
         return const _StatusStyle(
           icon: Icons.check,
           iconBg: Color(0xFFE0F2F1),
@@ -919,6 +518,10 @@ class _HistoryCard extends StatelessWidget {
     }
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Status style data class
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _StatusStyle {
   final IconData icon;

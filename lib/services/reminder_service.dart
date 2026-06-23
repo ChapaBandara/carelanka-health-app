@@ -474,11 +474,13 @@ class ReminderService {
     int responseLatencyMinutes = 0,
     DateTime? snoozeUntil,
     String? existingLogId,
+    String medicationDosage = '',
   }) async {
     final payload = {
       'userId': userId,
       'medicationId': medicationId,
       'medicationName': medicationName,
+      'medicationDosage': medicationDosage,
       'condition': condition,
       'scheduledTime': Timestamp.fromDate(scheduledTime),
       'actualResponseTime': Timestamp.fromDate(DateTime.now()),
@@ -493,6 +495,27 @@ class ReminderService {
     } else {
       await _col.add(payload);
     }
+  }
+
+  /// Stream of ALL reminder logs for a user, ordered by scheduledTime descending.
+  /// Used by the Reminder History screen for full history (not just today).
+  Stream<QuerySnapshot<Map<String, dynamic>>> watchAllReminderLogs(String userId) {
+    return _col
+        .where('userId', isEqualTo: userId)
+        .orderBy('scheduledTime', descending: true)
+        .snapshots();
+  }
+
+  /// Stream filtered by status for a user, ordered by scheduledTime descending.
+  Stream<QuerySnapshot<Map<String, dynamic>>> watchReminderLogsByStatus(
+    String userId,
+    String status,
+  ) {
+    return _col
+        .where('userId', isEqualTo: userId)
+        .where('status', isEqualTo: status)
+        .orderBy('scheduledTime', descending: true)
+        .snapshots();
   }
 
   /// Adherence: confirmed / total logs in range.
@@ -778,11 +801,15 @@ class ReminderService {
     required DateTime scheduledTime,
     required String status,
     DateTime? actualResponseTime,
+    String medicationName = '',
+    String medicationDosage = '',
   }) async {
     try {
       await _col.add({
         'userId': userId,
         'medicationId': medicationId,
+        'medicationName': medicationName,
+        'medicationDosage': medicationDosage,
         'illnessId': illnessId,
         'scheduledTime': Timestamp.fromDate(scheduledTime),
         if (actualResponseTime != null) ...{
@@ -815,6 +842,7 @@ class ReminderService {
         final data = medDoc.data();
         final medId = medDoc.id;
         final medName = data['name'] as String? ?? '';
+        final medDosage = data['dosage'] as String? ?? '';
         final illnessId = data['illnessId'] as String? ?? '';
         final times = List<String>.from(data['scheduledTimes'] as List? ?? []);
 
@@ -844,19 +872,21 @@ class ReminderService {
             parsed.$2,
           );
 
-          if (scheduledDt.isAfter(now.subtract(const Duration(minutes: 5)))) {
+          // Only auto-log if dose was due more than 60 minutes ago.
+          if (!scheduledDt.isBefore(now.subtract(const Duration(minutes: 60)))) {
             continue;
           }
 
+          // Check if a log already exists within ±5 minutes of scheduled time.
           final existingLog = await _col
               .where('userId', isEqualTo: userId)
               .where('medicationId', isEqualTo: medId)
               .where('scheduledTime',
                   isGreaterThanOrEqualTo: Timestamp.fromDate(
-                      scheduledDt.subtract(const Duration(minutes: 30))))
+                      scheduledDt.subtract(const Duration(minutes: 5))))
               .where('scheduledTime',
                   isLessThanOrEqualTo: Timestamp.fromDate(
-                      scheduledDt.add(const Duration(minutes: 30))))
+                      scheduledDt.add(const Duration(minutes: 5))))
               .limit(1)
               .get();
 
@@ -864,20 +894,33 @@ class ReminderService {
 
           final condition = await _getIllnessName(illnessId);
 
-          final docRef = _col.doc();
-          await docRef.set({
-            'userId': userId,
-            'medicationId': medId,
-            'medicationName': medName,
-            'condition': condition,
-            'scheduledTime': Timestamp.fromDate(scheduledDt),
-            'actualResponseTime': null,
-            'status': 'missed',
-            'responseLatencyMinutes': 0,
-            'createdAt': Timestamp.fromDate(now),
-          });
+          // Format the display time for the alert message (e.g. "8:00 AM").
+          final displayTime = DateFormat.jm().format(scheduledDt);
 
-          await _createMissedDoseAlert(userId, medName, timeStr);
+          try {
+            await _col.add({
+              'userId': userId,
+              'medicationId': medId,
+              'medicationName': medName,
+              'medicationDosage': medDosage,
+              'illnessId': illnessId,
+              'condition': condition,
+              'scheduledTime': Timestamp.fromDate(scheduledDt),
+              'actualResponseTime': null,
+              'responseLatencyMinutes': null,
+              'status': 'missed',
+              'createdAt': Timestamp.fromDate(now),
+            });
+          } catch (_) {
+            continue;
+          }
+
+          await _createMissedDoseAlert(
+            userId,
+            medName,
+            medDosage,
+            displayTime,
+          );
         }
       }
     } catch (_) {}
@@ -899,28 +942,34 @@ class ReminderService {
   Future<void> _createMissedDoseAlert(
     String userId,
     String medName,
-    String time,
+    String medDosage,
+    String displayTime,
   ) async {
     try {
       final now = DateTime.now();
       final todayStart = DateTime(now.year, now.month, now.day);
 
+      // Avoid duplicate alerts for the same medication+time within the same day.
       final existing = await _firestore
           .collection(FirebaseCollections.alerts)
           .where('userId', isEqualTo: userId)
-          .where('type', isEqualTo: 'missed')
+          .where('type', isEqualTo: 'missed_dose')
           .where('createdAt',
               isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
           .get();
 
-      final alreadyExists = existing.docs.any((d) =>
-          (d.data()['message'] as String? ?? '').contains(medName));
+      final dosageStr = medDosage.isNotEmpty ? ' $medDosage' : '';
+      final message =
+          'You missed your $displayTime dose of $medName$dosageStr';
+
+      final alreadyExists =
+          existing.docs.any((d) => (d.data()['message'] as String? ?? '') == message);
       if (alreadyExists) return;
 
       await _firestore.collection(FirebaseCollections.alerts).add({
         'userId': userId,
-        'type': 'missed',
-        'message': 'Missed $medName dose scheduled for $time today.',
+        'type': 'missed_dose',
+        'message': message,
         'read': false,
         'createdAt': Timestamp.fromDate(now),
       });
