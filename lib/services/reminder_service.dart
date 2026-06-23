@@ -497,16 +497,15 @@ class ReminderService {
     }
   }
 
-  /// Stream of ALL reminder logs for a user, ordered by scheduledTime descending.
+  /// Stream of ALL reminder logs for a user (no orderBy — sorted in UI).
   /// Used by the Reminder History screen for full history (not just today).
   Stream<QuerySnapshot<Map<String, dynamic>>> watchAllReminderLogs(String userId) {
     return _col
         .where('userId', isEqualTo: userId)
-        .orderBy('scheduledTime', descending: true)
         .snapshots();
   }
 
-  /// Stream filtered by status for a user, ordered by scheduledTime descending.
+  /// Stream filtered by status for a user (no orderBy — sorted in UI).
   Stream<QuerySnapshot<Map<String, dynamic>>> watchReminderLogsByStatus(
     String userId,
     String status,
@@ -514,7 +513,6 @@ class ReminderService {
     return _col
         .where('userId', isEqualTo: userId)
         .where('status', isEqualTo: status)
-        .orderBy('scheduledTime', descending: true)
         .snapshots();
   }
 
@@ -872,8 +870,8 @@ class ReminderService {
             parsed.$2,
           );
 
-          // Only auto-log if dose was due more than 60 minutes ago.
-          if (!scheduledDt.isBefore(now.subtract(const Duration(minutes: 60)))) {
+          // Only auto-log if dose was due more than 5 minutes ago.
+          if (!scheduledDt.isBefore(now.subtract(const Duration(minutes: 5)))) {
             continue;
           }
 

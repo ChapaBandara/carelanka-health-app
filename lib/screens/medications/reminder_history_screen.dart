@@ -244,8 +244,19 @@ class _FirestoreLogTab extends StatelessWidget {
           );
         }
 
-        final docs = snapshot.data?.docs ?? [];
-        final items = docs
+        final rawDocs = snapshot.data?.docs ?? [];
+
+        // Sort descending by scheduledTime in Dart — no composite index needed.
+        final sortedDocs = List.of(rawDocs)
+          ..sort((a, b) {
+            final aRaw = a.data()['scheduledTime'];
+            final bRaw = b.data()['scheduledTime'];
+            final aMs = aRaw is Timestamp ? aRaw.millisecondsSinceEpoch : 0;
+            final bMs = bRaw is Timestamp ? bRaw.millisecondsSinceEpoch : 0;
+            return bMs.compareTo(aMs); // descending
+          });
+
+        final items = sortedDocs
             .map(docToDisplay)
             .where(matchesSearch)
             .toList();

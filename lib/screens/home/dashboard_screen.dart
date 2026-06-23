@@ -147,6 +147,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             dosage: data['dosage'] as String? ?? '',
             condition: data['condition'] as String? ?? '',
             mealTiming: data['mealTiming'] as String? ?? 'anytime',
+            userId: userId,
+            illnessId: data['illnessId'] as String? ?? '',
           );
         }
       }

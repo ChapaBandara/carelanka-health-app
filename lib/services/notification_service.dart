@@ -1,17 +1,24 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:carelanka_app/main.dart' show navigatorKey;
+import 'package:carelanka_app/firebase_options.dart';
 import 'package:carelanka_app/models/daily_dose_item.dart';
 import 'package:carelanka_app/services/adherence_service.dart';
 import 'package:carelanka_app/services/reminder_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+
+/// Global navigator key — owned here (not in main.dart) to avoid a circular
+/// import between notification_service.dart and main.dart.
+/// main.dart imports this key and passes it to MaterialApp.navigatorKey.
+final GlobalKey<NavigatorState> notificationNavigatorKey =
+    GlobalKey<NavigatorState>();
 
 // ---------------------------------------------------------------------------
 // Top-level background notification action handler
@@ -23,7 +30,9 @@ Future<void> _onBackgroundNotificationAction(
     NotificationResponse response) async {
   try {
     // Firebase must be initialised in the background isolate.
-    await Firebase.initializeApp();
+    // Passing options avoids a crash when google-services.json is needed.
+    await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform);
   } catch (_) {
     // Already initialised — safe to ignore.
   }
@@ -233,7 +242,7 @@ class NotificationService {
       );
 
       Future.delayed(const Duration(milliseconds: 500), () {
-        navigatorKey.currentState
+        notificationNavigatorKey.currentState
             ?.pushNamed('/taking-medication', arguments: dose);
       });
     } catch (_) {}
