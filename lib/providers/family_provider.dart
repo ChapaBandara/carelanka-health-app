@@ -31,6 +31,18 @@ class FamilyProvider extends ChangeNotifier {
   void switchToMember(Map<String, String> member) {
     _ownerUid ??= FirebaseAuth.instance.currentUser?.uid;
     _activeMember = member;
+
+    // Debug: print what UID will be used
+    final linkedUid = member['linkedUserId'] ?? '';
+    final hasLinkedAccount = member['hasOwnAccount'] == 'true' &&
+        linkedUid.isNotEmpty;
+
+    if (!hasLinkedAccount) {
+      // This is a dependent profile — data will use owner's UID
+      // which means we see the owner's data for dependents
+      // This is expected behavior for dependents without their own account
+    }
+
     notifyListeners();
   }
 

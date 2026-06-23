@@ -180,7 +180,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
     var taken = 0;
     var missed = 0;
     var pending = 0;
+    var totalScheduled = 0;
     final medMap = <String, Map<String, int>>{};
+    final medScheduledCount = <String, int>{};
+    final medLoggedCount = <String, int>{};
+
+    for (final log in filteredLogs) {
+      final medId = log['medicationId'] as String? ?? '';
+      medLoggedCount[medId] = (medLoggedCount[medId] ?? 0) + 1;
+    }
 
     final startDay =
         DateTime(periodStart.year, periodStart.month, periodStart.day);
@@ -206,26 +214,52 @@ class _ReportsScreenState extends State<ReportsScreen> {
             continue;
           }
 
+          totalScheduled++;
+          medScheduledCount[medId] = (medScheduledCount[medId] ?? 0) + 1;
+
           final log = _findLogForSchedule(filteredLogs, medId, scheduledAt);
           var status = 'upcoming';
           if (log != null) {
             status = (log['status'] as String? ?? 'confirmed').toLowerCase();
             if (status == 'taken') status = 'confirmed';
-          } else if (!scheduledAt.isAfter(now)) {
+          } else if (isDaily && !scheduledAt.isAfter(now)) {
             status = 'missed';
           }
 
           if (status == 'confirmed') {
             taken++;
             medMap[name]!['taken'] = medMap[name]!['taken']! + 1;
-          } else if (status == 'missed' || status == 'skipped') {
+          } else if (isDaily && (status == 'missed' || status == 'skipped')) {
             missed++;
             medMap[name]!['missed'] = medMap[name]!['missed']! + 1;
-          } else {
+          } else if (isDaily) {
             pending++;
             medMap[name]!['pending'] = medMap[name]!['pending']! + 1;
           }
         }
+      }
+    }
+
+    if (!isDaily) {
+      missed = filteredLogs
+          .where((l) => (l['status'] as String? ?? '').toLowerCase() == 'missed')
+          .length;
+      pending = (totalScheduled - filteredLogs.length).clamp(0, totalScheduled);
+
+      for (final medId in activeMedIds) {
+        final med = medDocs[medId];
+        if (med == null) continue;
+        final name = med['name'] as String? ?? 'Medication';
+        final medMissed = filteredLogs
+            .where((l) =>
+                (l['medicationId'] as String? ?? '') == medId &&
+                (l['status'] as String? ?? '').toLowerCase() == 'missed')
+            .length;
+        final sched = medScheduledCount[medId] ?? 0;
+        final logged = medLoggedCount[medId] ?? 0;
+        medMap.putIfAbsent(name, () => {'taken': 0, 'missed': 0, 'pending': 0});
+        medMap[name]!['missed'] = medMissed;
+        medMap[name]!['pending'] = (sched - logged).clamp(0, sched);
       }
     }
 
@@ -238,7 +272,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         total += times.length;
       }
     } else {
-      total = taken + missed + pending;
+      total = totalScheduled;
     }
 
     final medStats = medMap.entries.map((e) {

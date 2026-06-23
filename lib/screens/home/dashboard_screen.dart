@@ -18,6 +18,7 @@ import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -115,6 +116,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _rescheduleAllNotifications(String userId) async {
     try {
+      // First cancel ALL existing medication reminder notifications
+      // IDs 0-99999 are medication reminder IDs
+      // We cancel a wide range to ensure stale ones are cleared
+      final plugin = FlutterLocalNotificationsPlugin();
+      final pending = await plugin.pendingNotificationRequests();
+      for (final n in pending) {
+        if (n.id < 300000) { // medication IDs are below 300000
+          await plugin.cancel(id: n.id);
+        }
+      }
+
+      // Then reschedule only active medications
       final medSnap = await FirebaseFirestore.instance
           .collection('medications')
           .where('userId', isEqualTo: userId)
@@ -129,8 +142,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (times.isNotEmpty) {
           await NotificationService.instance.scheduleMedicationReminders(
             medicationId: doc.id,
-            title: '$name — tap to take your dose',
+            title: name,
             timeStrings: times,
+            dosage: data['dosage'] as String? ?? '',
+            condition: data['condition'] as String? ?? '',
+            mealTiming: data['mealTiming'] as String? ?? 'anytime',
           );
         }
       }

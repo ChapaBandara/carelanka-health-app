@@ -844,7 +844,7 @@ class ReminderService {
             parsed.$2,
           );
 
-          if (scheduledDt.isAfter(now.subtract(const Duration(minutes: 60)))) {
+          if (scheduledDt.isAfter(now.subtract(const Duration(minutes: 5)))) {
             continue;
           }
 
@@ -853,10 +853,10 @@ class ReminderService {
               .where('medicationId', isEqualTo: medId)
               .where('scheduledTime',
                   isGreaterThanOrEqualTo: Timestamp.fromDate(
-                      scheduledDt.subtract(const Duration(minutes: 5))))
+                      scheduledDt.subtract(const Duration(minutes: 30))))
               .where('scheduledTime',
                   isLessThanOrEqualTo: Timestamp.fromDate(
-                      scheduledDt.add(const Duration(minutes: 5))))
+                      scheduledDt.add(const Duration(minutes: 30))))
               .limit(1)
               .get();
 

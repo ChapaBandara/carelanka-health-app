@@ -52,6 +52,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
@@ -77,6 +79,7 @@ class CareLankaApp extends StatelessWidget {
         title: 'CareLanka',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
+        navigatorKey: navigatorKey,
         navigatorObservers: [authRouteObserver],
         initialRoute: AppRoutes.splash,
         routes: {

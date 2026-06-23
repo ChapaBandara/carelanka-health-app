@@ -1,3 +1,5 @@
+import 'package:carelanka_app/main.dart' show navigatorKey;
+import 'package:carelanka_app/models/daily_dose_item.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
@@ -17,9 +19,15 @@ class NotificationService {
     tz.initializeTimeZones();
 
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const ios = DarwinInitializationSettings();
+    const ios = DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
     await _plugin.initialize(
       settings: const InitializationSettings(android: android, iOS: ios),
+      onDidReceiveNotificationResponse: _onNotificationTapped,
+      onDidReceiveBackgroundNotificationResponse: _onBackgroundNotificationTapped,
     );
 
     final androidPlugin =
@@ -28,6 +36,68 @@ class NotificationService {
     await androidPlugin?.requestExactAlarmsPermission();
 
     _initialized = true;
+  }
+
+  void _onNotificationTapped(NotificationResponse response) {
+    _handlePayload(response.payload);
+  }
+
+  @pragma('vm:entry-point')
+  static void _onBackgroundNotificationTapped(NotificationResponse response) {
+    // Background handler — limited functionality
+  }
+
+  void _handlePayload(String? payload) {
+    if (payload == null || payload.isEmpty) return;
+
+    try {
+      // Parse payload: "medicationId|medicationName|dosage|condition|scheduledTimeMillis|mealTiming|logId"
+      final parts = payload.split('|');
+      if (parts.length < 5) return;
+
+      final medicationId = parts[0];
+      final medicationName = parts[1];
+      final dosage = parts[2];
+      final condition = parts[3];
+      final scheduledMillis = int.tryParse(parts[4]) ?? 0;
+      final mealTiming = parts.length > 5 ? parts[5] : 'anytime';
+      final logId = parts.length > 6 ? parts[6] : null;
+
+      if (medicationId.isEmpty || medicationName.isEmpty) return;
+
+      final scheduledAt = scheduledMillis > 0
+          ? DateTime.fromMillisecondsSinceEpoch(scheduledMillis)
+          : DateTime.now();
+
+      final dose = DailyDoseItem(
+        medicationId: medicationId,
+        medicationName: medicationName,
+        dosage: dosage,
+        condition: condition,
+        scheduledLabel: _formatTime(scheduledAt),
+        scheduledAt: scheduledAt,
+        status: 'pending',
+        mealTiming: mealTiming,
+        logId: logId,
+      );
+
+      // Navigate using the global navigator key
+      // Small delay to ensure app is mounted
+      Future.delayed(const Duration(milliseconds: 500), () {
+        navigatorKey.currentState?.pushNamed(
+          '/taking-medication',
+          arguments: dose,
+        );
+      });
+    } catch (_) {}
+  }
+
+  static String _formatTime(DateTime dt) {
+    final hour = dt.hour;
+    final minute = dt.minute.toString().padLeft(2, '0');
+    final period = hour >= 12 ? 'PM' : 'AM';
+    final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+    return '$displayHour:$minute $period';
   }
 
   Future<bool> _getVibrateEnabled(String userId) async {
@@ -52,6 +122,9 @@ class NotificationService {
     required String medicationId,
     required String title,
     required List<String> timeStrings,
+    String dosage = '',
+    String condition = '',
+    String mealTiming = 'anytime',
   }) async {
     await initialize();
     final vibrate = await _vibrateForCurrentUser();
@@ -74,10 +147,15 @@ class NotificationService {
       ),
     );
     var id = medicationId.hashCode.abs() % 100000;
+    final now = DateTime.now();
     for (final timeStr in timeStrings) {
       final parts = _parseTime(timeStr.trim());
       if (parts == null) continue;
       final scheduled = _nextInstance(parts.$1, parts.$2);
+      final scheduledDt = DateTime(
+        now.year, now.month, now.day, parts.$1, parts.$2);
+      final payloadMillis = scheduledDt.millisecondsSinceEpoch;
+      final payload = '$medicationId|$title|$dosage|$condition|$payloadMillis|$mealTiming|';
       await _zonedSchedule(
         id: id++,
         scheduledDate: scheduled,
@@ -87,6 +165,7 @@ class NotificationService {
         body: title,
         matchDateTimeComponents: DateTimeComponents.time,
         notificationDetails: details,
+        payload: payload,
       );
     }
   }
@@ -160,6 +239,7 @@ class NotificationService {
     required String body,
     required NotificationDetails notificationDetails,
     DateTimeComponents? matchDateTimeComponents,
+    String? payload,
   }) async {
     var mode = await _preferredAndroidScheduleMode();
     try {
@@ -171,6 +251,7 @@ class NotificationService {
         matchDateTimeComponents: matchDateTimeComponents,
         title: title,
         body: body,
+        payload: payload,
       );
     } on PlatformException catch (e) {
       if (e.code != 'exact_alarms_not_permitted' ||
@@ -185,6 +266,7 @@ class NotificationService {
         matchDateTimeComponents: matchDateTimeComponents,
         title: title,
         body: body,
+        payload: payload,
       );
     }
   }
