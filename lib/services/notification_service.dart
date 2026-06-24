@@ -163,6 +163,20 @@ class NotificationService {
     await androidPlugin?.requestNotificationsPermission();
     await androidPlugin?.requestExactAlarmsPermission();
 
+    // Explicitly create the notification channel so Samsung and other OEM
+    // devices register it with maximum importance before the first notification.
+    await androidPlugin?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        'carelanka_medication_channel',
+        'CareLanka Medication Reminders',
+        description: 'Medication reminder notifications',
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+        showBadge: true,
+      ),
+    );
+
     // On Android 14+ (API 34+) USE_FULL_SCREEN_INTENT is a runtime permission.
     // We request it via a MethodChannel call; if the channel is not registered
     // on the native side the call is silently ignored.
@@ -335,9 +349,9 @@ class NotificationService {
       });
 
       final androidDetails = AndroidNotificationDetails(
-        'medication_reminders',
-        'Medication Reminders',
-        channelDescription: 'CareLanka medication reminders',
+        'carelanka_medication_channel',
+        'CareLanka Medication Reminders',
+        channelDescription: 'Medication reminder notifications',
         importance: Importance.max,
         priority: Priority.max,
         fullScreenIntent: true,
@@ -386,8 +400,8 @@ class NotificationService {
       await _zonedSchedule(
         id: id++,
         scheduledDate: scheduled,
-        channelId: 'medication_reminders',
-        channelName: 'Medication Reminders',
+        channelId: 'carelanka_medication_channel',
+        channelName: 'CareLanka Medication Reminders',
         title: 'Time for your medication 💊',
         body: dosage.isNotEmpty
             ? '$title $dosage${condition.isNotEmpty ? ' — $condition' : ''}'
@@ -396,6 +410,8 @@ class NotificationService {
         notificationDetails: details,
         payload: payload,
       );
+
+      debugPrint('✅ Notification scheduled: $title at $timeStr next fire: $scheduled');
     }
   }
 
@@ -473,8 +489,8 @@ class NotificationService {
 
     // Re-use action buttons on the snoozed notification too.
     final androidDetails = AndroidNotificationDetails(
-      'medication_reminders',
-      'Medication Reminders',
+      'carelanka_medication_channel',
+      'CareLanka Medication Reminders',
       importance: Importance.max,
       priority: Priority.max,
       playSound: true,
@@ -520,8 +536,8 @@ class NotificationService {
     await _zonedSchedule(
       id: 600000 + (medicationId.hashCode.abs() % 10000),
       scheduledDate: tzSnooze,
-      channelId: 'medication_reminders',
-      channelName: 'Medication Reminders',
+      channelId: 'carelanka_medication_channel',
+      channelName: 'CareLanka Medication Reminders',
       title: 'Snoozed medication reminder 💊',
       body: 'Your snoozed dose is due now.',
       notificationDetails: details,

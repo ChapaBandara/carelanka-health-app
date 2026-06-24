@@ -40,6 +40,7 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid == null || uid.isEmpty) return;
       await ReminderService().checkMissedReminders(uid);
+      await ReminderService().autoLogMissedDoses(uid);
     } catch (_) {
       // Silent — never surface to user.
     }

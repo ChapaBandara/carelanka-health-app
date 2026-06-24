@@ -48,6 +48,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       // Check for missed doses and auto-log them.
       await ReminderService().checkMissedReminders(uid);
+      await ReminderService().autoLogMissedDoses(uid);
       await _rescheduleAllNotifications(uid);
 
       _checkAndSendPeriodReport(uid);

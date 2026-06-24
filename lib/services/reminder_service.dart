@@ -6,6 +6,7 @@ import 'package:carelanka_app/models/daily_dose_item.dart';
 import 'package:carelanka_app/services/adherence_service.dart';
 import 'package:carelanka_app/services/notification_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 
 class ReminderService {
@@ -647,6 +648,10 @@ class ReminderService {
         try {
           final data = doc.data();
           final medId = doc.id;
+          final illnessId = data['illnessId'] as String? ?? '';
+          final dosage = data['dosage'] as String? ?? '';
+          final mealTiming = data['mealTiming'] as String? ?? 'anytime';
+          final illnessName = await _getIllnessName(illnessId);
 
           // ── COLD START CHECK ────────────────────────────────────────────
           // Skip medications that are less than 7 days old.
@@ -720,6 +725,11 @@ class ReminderService {
                   medicationId: medId,
                   title: name,
                   timeStrings: newTimes,
+                  dosage: dosage,
+                  condition: illnessName,
+                  mealTiming: mealTiming,
+                  userId: userId,
+                  illnessId: illnessId,
                 );
               } catch (_) {}
             }
@@ -751,6 +761,11 @@ class ReminderService {
                   medicationId: medId,
                   title: name,
                   timeStrings: originalScheduledTimes,
+                  dosage: dosage,
+                  condition: illnessName,
+                  mealTiming: mealTiming,
+                  userId: userId,
+                  illnessId: illnessId,
                 );
               } catch (_) {}
             } else {
@@ -1077,6 +1092,129 @@ class ReminderService {
           );
         } catch (_) {}
         return;
+    }
+  }
+  // ---------------------------------------------------------------------------
+  // Auto-log missed doses (60-minute threshold)
+  // ---------------------------------------------------------------------------
+
+  /// Scans today's schedule and auto-logs any dose that was due more than
+  /// 60 minutes ago with no existing reminder log. Also writes a
+  /// `missed_dose` alert to the `alerts` collection.
+  ///
+  /// Call this from the dashboard or any screen on load. All errors are
+  /// caught internally — never surfaced to the user.
+  Future<void> autoLogMissedDoses(String userId) async {
+    try {
+      final medsSnapshot = await _firestore
+          .collection(FirebaseCollections.medications)
+          .where('userId', isEqualTo: userId)
+          .where('active', isEqualTo: true)
+          .get();
+
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+
+      for (final medDoc in medsSnapshot.docs) {
+        try {
+          final data = medDoc.data();
+          final medicationId = medDoc.id;
+          final medicationName = data['name'] as String? ?? '';
+          final dosage = data['dosage'] as String? ?? '';
+          final illnessId = data['illnessId'] as String? ?? '';
+          final List<dynamic> times = data['scheduledTimes'] as List? ?? [];
+
+          // Skip completed illnesses.
+          if (illnessId.isNotEmpty) {
+            try {
+              final illnessDoc = await _firestore
+                  .collection(FirebaseCollections.illnesses)
+                  .doc(illnessId)
+                  .get();
+              final illnessStatus =
+                  illnessDoc.data()?['status'] as String? ?? 'active';
+              if (illnessStatus == 'completed') continue;
+            } catch (_) {
+              continue;
+            }
+          }
+
+          for (final timeRaw in times) {
+            try {
+              final timeStr = timeRaw.toString();
+              final parsed = _parseTimeString(timeStr);
+              if (parsed == null) continue;
+
+              final scheduledDateTime = DateTime(
+                today.year,
+                today.month,
+                today.day,
+                parsed.$1,
+                parsed.$2,
+              );
+
+              // Only check times that are more than 60 minutes in the past.
+              final minutesPast =
+                  now.difference(scheduledDateTime).inMinutes;
+              if (minutesPast < 60) continue;
+              if (scheduledDateTime.isBefore(today)) continue;
+
+              // Check if a log already exists within ±5 minutes.
+              final existingLog = await _col
+                  .where('userId', isEqualTo: userId)
+                  .where('medicationId', isEqualTo: medicationId)
+                  .where(
+                    'scheduledTime',
+                    isGreaterThanOrEqualTo: Timestamp.fromDate(
+                        scheduledDateTime.subtract(
+                            const Duration(minutes: 5))),
+                  )
+                  .where(
+                    'scheduledTime',
+                    isLessThanOrEqualTo: Timestamp.fromDate(
+                        scheduledDateTime.add(const Duration(minutes: 5))),
+                  )
+                  .limit(1)
+                  .get();
+
+              if (existingLog.docs.isNotEmpty) continue;
+
+              // Log as missed.
+              await _col.add({
+                'userId': userId,
+                'medicationId': medicationId,
+                'illnessId': illnessId,
+                'medicationName': medicationName,
+                'medicationDosage': dosage,
+                'scheduledTime': Timestamp.fromDate(scheduledDateTime),
+                'actualResponseTime': null,
+                'responseLatencyMinutes': null,
+                'status': 'missed',
+                'createdAt': Timestamp.fromDate(DateTime.now()),
+              });
+
+              // Create a missed-dose alert (deduped by message content).
+              final displayTime =
+                  '${parsed.$1.toString().padLeft(2, '0')}:${parsed.$2.toString().padLeft(2, '0')}';
+              await _createMissedDoseAlert(
+                userId,
+                medicationName,
+                dosage,
+                displayTime,
+              );
+
+              debugPrint(
+                  'Auto-logged missed dose: $medicationName at $timeStr');
+            } catch (_) {
+              continue;
+            }
+          }
+        } catch (_) {
+          continue;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error auto-logging missed doses: $e');
     }
   }
 }
