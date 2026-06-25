@@ -2,11 +2,13 @@ import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/design/carelanka_gradients.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
+import 'package:carelanka_app/core/utils/active_uid.dart';
+import 'package:carelanka_app/providers/family_provider.dart';
 import 'package:carelanka_app/services/health_record_service.dart';
 import 'package:carelanka_app/widgets/carelanka/carelanka_bottom_nav.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 /// CareLanka UI #34 — Documents Library with search and category filters.
 class DocumentsLibraryScreen extends StatefulWidget {
@@ -45,7 +47,9 @@ class _DocumentsLibraryScreenState extends State<DocumentsLibraryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final userId = FirebaseAuth.instance.currentUser!.uid;
+    return Consumer<FamilyProvider>(
+      builder: (context, _, _) {
+        final userId = context.activeUid;
 
     return StreamBuilder<List<Map<String, String>>>(
       stream: HealthRecordService().watchRecordMaps(userId),
@@ -162,6 +166,8 @@ class _DocumentsLibraryScreenState extends State<DocumentsLibraryScreen> {
             ),
           ),
         );
+      },
+    );
       },
     );
   }

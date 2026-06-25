@@ -1,9 +1,11 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:carelanka_app/core/utils/active_uid.dart';
+import 'package:carelanka_app/providers/family_provider.dart';
+import 'package:carelanka_app/services/health_record_service.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 /// CareLanka UI #36 — Health Record Search with highlighted matches.
 class HealthRecordSearchScreen extends StatefulWidget {
@@ -17,12 +19,10 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
   final _search = TextEditingController();
   int _chip = 0;
   final _chips = ['All', 'Prescriptions', 'Lab Reports', 'Doctors', 'Summary Reports'];
-  late final Future<List<Map<String, String>>> _recordsFuture;
 
   @override
   void initState() {
     super.initState();
-    _recordsFuture = _fetchRecords();
     _search.addListener(() => setState(() {}));
   }
 
@@ -30,34 +30,6 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
   void dispose() {
     _search.dispose();
     super.dispose();
-  }
-
-  Future<List<Map<String, String>>> _fetchRecords() async {
-    final userId = FirebaseAuth.instance.currentUser!.uid;
-    final snapshot = await FirebaseFirestore.instance.collection('health_records').where('userId', isEqualTo: userId).get();
-    final records = snapshot.docs.map((doc) {
-      final data = doc.data();
-      final visitDate = (data['visitDate'] as Timestamp?)?.toDate();
-      return <String, String>{
-        'recordId': doc.id,
-        'doctor': data['doctorName']?.toString() ?? '',
-        'hospital': data['hospital']?.toString() ?? '',
-        'diagnosis': data['diagnosis']?.toString() ?? '',
-        'notes': data['notes']?.toString() ?? '',
-        'documentType': data['documentType']?.toString() ?? '',
-        'documentUrl': data['documentUrl']?.toString() ?? '',
-        'title': data['diagnosis']?.toString() ?? data['doctorName']?.toString() ?? 'Record',
-        'date': visitDate != null ? '${visitDate.day}/${visitDate.month}/${visitDate.year}' : '',
-        'monthDay': visitDate != null ? '${visitDate.day}/${visitDate.month}' : '',
-        if (visitDate != null) 'visitDateMillis': '${visitDate.millisecondsSinceEpoch}',
-      };
-    }).toList();
-    records.sort((a, b) {
-      final aMs = int.tryParse(a['visitDateMillis'] ?? '0') ?? 0;
-      final bMs = int.tryParse(b['visitDateMillis'] ?? '0') ?? 0;
-      return bMs.compareTo(aMs);
-    });
-    return records;
   }
 
   List<Map<String, String>> _filter(List<Map<String, String>> records) {
@@ -96,8 +68,12 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
     final query = _search.text.trim();
     final isFiltering = query.isNotEmpty;
 
-    return FutureBuilder<List<Map<String, String>>>(
-      future: _recordsFuture,
+    return Consumer<FamilyProvider>(
+      builder: (context, _, _) {
+        final userId = context.activeUid;
+
+    return StreamBuilder<List<Map<String, String>>>(
+      stream: HealthRecordService().watchRecordMaps(userId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Scaffold(
@@ -193,6 +169,8 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
             ],
           ),
         );
+      },
+    );
       },
     );
   }
