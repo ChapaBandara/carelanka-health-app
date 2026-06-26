@@ -12,6 +12,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
@@ -175,6 +176,14 @@ class NotificationService {
             AndroidFlutterLocalNotificationsPlugin>();
     await androidPlugin?.requestNotificationsPermission();
     await androidPlugin?.requestExactAlarmsPermission();
+
+    // Request SCHEDULE_EXACT_ALARM permission at runtime (Android 12+)
+    try {
+      final status = await Permission.scheduleExactAlarm.request();
+      debugPrint('✅ SCHEDULE_EXACT_ALARM permission: $status');
+    } catch (e) {
+      debugPrint('⚠️ Could not request SCHEDULE_EXACT_ALARM: $e');
+    }
 
     // Explicitly create the notification channel so Samsung and other OEM
     // devices register it with maximum importance before the first notification.
@@ -716,11 +725,20 @@ class NotificationService {
   }
 
   Future<AndroidScheduleMode> _preferredAndroidScheduleMode() async {
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
-    if (android == null) return AndroidScheduleMode.inexactAllowWhileIdle;
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+    if (android == null) {
+      debugPrint('⚠️ Android plugin is null, using inexactAllowWhileIdle');
+      return AndroidScheduleMode.inexactAllowWhileIdle;
+    }
     final canExact = await android.canScheduleExactNotifications();
-    if (canExact == true) return AndroidScheduleMode.exactAllowWhileIdle;
+    debugPrint('🔔 canScheduleExactNotifications: $canExact');
+    if (canExact == true) {
+      debugPrint('✅ Using EXACT_ALLOW_WHILE_IDLE mode');
+      return AndroidScheduleMode.exactAllowWhileIdle;
+    }
+    debugPrint('⚠️ Using INEXACT_ALLOW_WHILE_IDLE mode (notifications may be delayed)');
     return AndroidScheduleMode.inexactAllowWhileIdle;
   }
 
