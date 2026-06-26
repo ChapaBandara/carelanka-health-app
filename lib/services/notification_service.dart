@@ -29,6 +29,7 @@ final GlobalKey<NavigatorState> notificationNavigatorKey =
 @pragma('vm:entry-point')
 Future<void> _onBackgroundNotificationAction(
     NotificationResponse response) async {
+  debugPrint('🔔 BACKGROUND HANDLER FIRED: action=${response.actionId}, payload=${response.payload}');
   try {
     // Firebase must be initialised in the background isolate.
     // Passing options avoids a crash when google-services.json is needed.
@@ -72,6 +73,7 @@ Future<void> _onBackgroundNotificationAction(
     final adherence = AdherenceService();
 
     if (actionId.startsWith('taken_')) {
+      debugPrint('✅ USER TAPPED: Taken');
       try {
         await reminder.logReminderAction(
           userId: userId,
@@ -83,11 +85,15 @@ Future<void> _onBackgroundNotificationAction(
           medicationName: medicationName,
           medicationDosage: dosage,
         );
-      } catch (_) {}
+        debugPrint('✅ LOGGED REMINDER: confirmed');
+      } catch (e) {
+        debugPrint('❌ FAILED TO LOG REMINDER: $e');
+      }
       try {
         await adherence.decrementStock(medicationId, userId);
       } catch (_) {}
     } else if (actionId.startsWith('snooze_')) {
+      debugPrint('✅ USER TAPPED: Snooze');
       try {
         await reminder.logReminderAction(
           userId: userId,
@@ -99,7 +105,10 @@ Future<void> _onBackgroundNotificationAction(
           medicationName: medicationName,
           medicationDosage: dosage,
         );
-      } catch (_) {}
+        debugPrint('✅ LOGGED REMINDER: snoozed');
+      } catch (e) {
+        debugPrint('❌ FAILED TO LOG REMINDER: $e');
+      }
       // Reschedule a one-shot notification for 15 minutes from now.
       try {
         await NotificationService.instance.scheduleSnooze(
@@ -109,6 +118,7 @@ Future<void> _onBackgroundNotificationAction(
         );
       } catch (_) {}
     } else if (actionId.startsWith('skip_')) {
+      debugPrint('✅ USER TAPPED: Skip');
       try {
         await reminder.logReminderAction(
           userId: userId,
@@ -120,7 +130,10 @@ Future<void> _onBackgroundNotificationAction(
           medicationName: medicationName,
           medicationDosage: dosage,
         );
-      } catch (_) {}
+        debugPrint('✅ LOGGED REMINDER: skipped');
+      } catch (e) {
+        debugPrint('❌ FAILED TO LOG REMINDER: $e');
+      }
     }
     // If actionId is empty, the user tapped the notification body — navigate
     // to the taking-medication screen (handled in foreground via navigatorKey).
@@ -176,6 +189,7 @@ class NotificationService {
         showBadge: true,
       ),
     );
+    debugPrint('✅ Notification channel created: carelanka_medication_channel');
 
     // On Android 14+ (API 34+) USE_FULL_SCREEN_INTENT is a runtime permission.
     // We request it via a MethodChannel call; if the channel is not registered
@@ -194,6 +208,7 @@ class NotificationService {
   // ── Foreground response handler ──────────────────────────────────────────
 
   void _onForegroundNotificationResponse(NotificationResponse response) {
+    debugPrint('🔔 FOREGROUND HANDLER FIRED: actionId=${response.actionId}');
     // Action-button taps (foreground) — delegate to the same shared handler.
     if (response.actionId != null && response.actionId!.isNotEmpty) {
       _onBackgroundNotificationAction(response);
@@ -411,6 +426,9 @@ class NotificationService {
         payload: payload,
       );
 
+      debugPrint('🔔 ATTEMPTING TO SCHEDULE: $title at $timeStr');
+      debugPrint('🔔 Scheduled date/time: $scheduled');
+      debugPrint('🔔 Payload: $payload');
       debugPrint('✅ Notification scheduled: $title at $timeStr next fire: $scheduled');
     }
   }
