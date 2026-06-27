@@ -421,8 +421,9 @@ class NotificationService {
         ),
       );
 
+      final currentId = id++;
       await _zonedSchedule(
-        id: id++,
+        id: currentId,
         scheduledDate: scheduled,
         channelId: 'carelanka_medication_channel',
         channelName: 'CareLanka Medication Reminders',
@@ -434,6 +435,27 @@ class NotificationService {
         notificationDetails: details,
         payload: payload,
       );
+
+      // FALLBACK: Grace-period notification for Samsung Doze workaround
+      final gracePeriod = scheduled.add(const Duration(seconds: 30));
+      try {
+        await _zonedSchedule(
+          id: currentId + 50000,
+          scheduledDate: gracePeriod,
+          channelId: 'carelanka_medication_channel',
+          channelName: 'CareLanka Medication Reminders',
+          title: 'Time for your medication 💊',
+          body: dosage.isNotEmpty
+              ? '$title $dosage${condition.isNotEmpty ? ' — $condition' : ''}'
+              : '$title${condition.isNotEmpty ? ' — $condition' : ''}',
+          matchDateTimeComponents: null,
+          notificationDetails: details,
+          payload: payload,
+        );
+        debugPrint('⏰ GRACE PERIOD fallback: $title at ${gracePeriod.hour}:${gracePeriod.minute}');
+      } catch (e) {
+        debugPrint('⚠️ Grace period failed: $e');
+      }
 
       debugPrint('🔔 ATTEMPTING TO SCHEDULE: $title at $timeStr');
       debugPrint('🔔 Scheduled date/time: $scheduled');
