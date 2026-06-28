@@ -498,37 +498,28 @@ class ReminderService {
     }
   }
 
-  /// Stream of ALL reminder logs for the current user scoped to today only.
-  /// Uses a scheduledTime range filter — no orderBy, no composite index needed.
-  /// Sorting is done in the UI layer.
+  /// Stream of ALL reminder logs for [userId] across all dates,
+  /// ordered by scheduledTime descending, capped at 500 documents
+  /// (~60 days of data for a typical user).
   Stream<QuerySnapshot<Map<String, dynamic>>> watchAllReminderLogs(String userId) {
-    final now = DateTime.now();
-    final todayStart = Timestamp.fromDate(DateTime(now.year, now.month, now.day));
-    final todayEnd = Timestamp.fromDate(
-        DateTime(now.year, now.month, now.day, 23, 59, 59));
     return _col
         .where('userId', isEqualTo: userId)
-        .where('scheduledTime', isGreaterThanOrEqualTo: todayStart)
-        .where('scheduledTime', isLessThanOrEqualTo: todayEnd)
+        .orderBy('scheduledTime', descending: true)
+        .limit(500)
         .snapshots();
   }
 
-  /// Stream filtered by status for the current user, scoped to today only.
-  /// Uses a scheduledTime range filter — no orderBy, no composite index needed.
-  /// Sorting is done in the UI layer.
+  /// Stream filtered by [status] for [userId] across all dates,
+  /// ordered by scheduledTime descending, capped at 500 documents.
   Stream<QuerySnapshot<Map<String, dynamic>>> watchReminderLogsByStatus(
     String userId,
     String status,
   ) {
-    final now = DateTime.now();
-    final todayStart = Timestamp.fromDate(DateTime(now.year, now.month, now.day));
-    final todayEnd = Timestamp.fromDate(
-        DateTime(now.year, now.month, now.day, 23, 59, 59));
     return _col
         .where('userId', isEqualTo: userId)
         .where('status', isEqualTo: status)
-        .where('scheduledTime', isGreaterThanOrEqualTo: todayStart)
-        .where('scheduledTime', isLessThanOrEqualTo: todayEnd)
+        .orderBy('scheduledTime', descending: true)
+        .limit(500)
         .snapshots();
   }
 

@@ -422,19 +422,28 @@ class NotificationService {
       );
 
       final currentId = id++;
-      await _zonedSchedule(
-        id: currentId,
-        scheduledDate: scheduled,
-        channelId: 'carelanka_medication_channel',
-        channelName: 'CareLanka Medication Reminders',
-        title: 'Time for your medication 💊',
-        body: dosage.isNotEmpty
-            ? '$title $dosage${condition.isNotEmpty ? ' — $condition' : ''}'
-            : '$title${condition.isNotEmpty ? ' — $condition' : ''}',
-        matchDateTimeComponents: DateTimeComponents.time,
-        notificationDetails: details,
-        payload: payload,
-      );
+      debugPrint('🔔 ATTEMPTING TO SCHEDULE: $title at $timeStr (id=$currentId)');
+      debugPrint('🔔 Scheduled date/time: $scheduled');
+      debugPrint('🔔 Payload: $payload');
+      try {
+        await _zonedSchedule(
+          id: currentId,
+          scheduledDate: scheduled,
+          channelId: 'carelanka_medication_channel',
+          channelName: 'CareLanka Medication Reminders',
+          title: 'Time for your medication 💊',
+          body: dosage.isNotEmpty
+              ? '$title $dosage${condition.isNotEmpty ? ' — $condition' : ''}'
+              : '$title${condition.isNotEmpty ? ' — $condition' : ''}',
+          matchDateTimeComponents: DateTimeComponents.time,
+          notificationDetails: details,
+          payload: payload,
+        );
+        debugPrint('✅ Notification scheduled: $title at $timeStr next fire: $scheduled');
+      } catch (e, st) {
+        debugPrint('❌ MAIN SCHEDULE FAILED: $title at $timeStr id=$currentId error=$e');
+        debugPrint('❌ StackTrace: $st');
+      }
 
       // FALLBACK: Grace-period notifications for Samsung Doze workaround
       final gracePeriod1 = scheduled.add(const Duration(seconds: 30));
@@ -476,11 +485,6 @@ class NotificationService {
       } catch (e) {
         debugPrint('⚠️ Grace period 2 failed: $e');
       }
-
-      debugPrint('🔔 ATTEMPTING TO SCHEDULE: $title at $timeStr');
-      debugPrint('🔔 Scheduled date/time: $scheduled');
-      debugPrint('🔔 Payload: $payload');
-      debugPrint('✅ Notification scheduled: $title at $timeStr next fire: $scheduled');
     }
   }
 
@@ -772,10 +776,31 @@ class NotificationService {
     String? payload,
   }) async {
     var mode = await _preferredAndroidScheduleMode();
+
+    // Pin timezone to Asia/Colombo so the alarm fires at the correct local
+    // time regardless of what tz.local resolves to on the device/emulator.
+    final colombo = tz.getLocation('Asia/Colombo');
+    final tzDateTime = tz.TZDateTime.from(scheduledDate, colombo);
+
+    debugPrint('🔔 ATTEMPTING ZONEDSCHEDULE: id=$id, date=$tzDateTime, mode=$mode');
+    final now = DateTime.now();
+    final tzNow = tz.TZDateTime.now(colombo);
+    final tzScheduled = tzDateTime;
+    final diffMinutes = tzScheduled.difference(tzNow).inMinutes;
+    debugPrint('📊 TIME DIAGNOSTIC:');
+    debugPrint('  System now: $now');
+    debugPrint('  TZ now (Colombo): $tzNow');
+    debugPrint('  TZ scheduled (Colombo): $tzScheduled');
+    debugPrint('  Diff: $diffMinutes minutes');
+    if (diffMinutes < 0) {
+      debugPrint('  ❌ ALARM IN PAST! Scheduled for yesterday/earlier');
+    } else if (diffMinutes < 1) {
+      debugPrint('  ⚠️ ALARM VERY SOON (< 1 min)');
+    }
     try {
       await _plugin.zonedSchedule(
         id: id,
-        scheduledDate: scheduledDate,
+        scheduledDate: tzDateTime,
         notificationDetails: notificationDetails,
         androidScheduleMode: mode,
         matchDateTimeComponents: matchDateTimeComponents,
@@ -783,22 +808,32 @@ class NotificationService {
         body: body,
         payload: payload,
       );
+      debugPrint('✅ ZONEDSCHEDULE SUCCESS: id=$id');
     } on PlatformException catch (e) {
       if (e.code != 'exact_alarms_not_permitted' ||
           mode == AndroidScheduleMode.inexactAllowWhileIdle) {
+        debugPrint('❌ ZONEDSCHEDULE FAILED: id=$id, error=${e.code}: ${e.message}');
         rethrow;
       }
       // Fallback to inexact if exact alarm permission was denied.
-      await _plugin.zonedSchedule(
-        id: id,
-        scheduledDate: scheduledDate,
-        notificationDetails: notificationDetails,
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        matchDateTimeComponents: matchDateTimeComponents,
-        title: title,
-        body: body,
-        payload: payload,
-      );
+      debugPrint('⚠️ ZONEDSCHEDULE: exact alarm denied (${e.code}), retrying with inexactAllowWhileIdle — id=$id');
+      try {
+        await _plugin.zonedSchedule(
+          id: id,
+          scheduledDate: tzDateTime,
+          notificationDetails: notificationDetails,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          matchDateTimeComponents: matchDateTimeComponents,
+          title: title,
+          body: body,
+          payload: payload,
+        );
+        debugPrint('✅ ZONEDSCHEDULE SUCCESS (inexact fallback): id=$id');
+      } catch (e2, st) {
+        debugPrint('❌ ZONEDSCHEDULE FAILED (inexact fallback): id=$id, error=$e2');
+        debugPrint('❌ StackTrace: $st');
+        rethrow;
+      }
     }
   }
 
