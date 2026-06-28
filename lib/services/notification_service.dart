@@ -436,12 +436,12 @@ class NotificationService {
         payload: payload,
       );
 
-      // FALLBACK: Grace-period notification for Samsung Doze workaround
-      final gracePeriod = scheduled.add(const Duration(seconds: 30));
+      // FALLBACK: Grace-period notifications for Samsung Doze workaround
+      final gracePeriod1 = scheduled.add(const Duration(seconds: 30));
       try {
         await _zonedSchedule(
           id: currentId + 50000,
-          scheduledDate: gracePeriod,
+          scheduledDate: gracePeriod1,
           channelId: 'carelanka_medication_channel',
           channelName: 'CareLanka Medication Reminders',
           title: 'Time for your medication 💊',
@@ -452,9 +452,29 @@ class NotificationService {
           notificationDetails: details,
           payload: payload,
         );
-        debugPrint('⏰ GRACE PERIOD fallback: $title at ${gracePeriod.hour}:${gracePeriod.minute}');
+        debugPrint('⏰ GRACE PERIOD 1 (30s): $title at ${gracePeriod1.hour}:${gracePeriod1.minute}:${gracePeriod1.second}');
       } catch (e) {
-        debugPrint('⚠️ Grace period failed: $e');
+        debugPrint('⚠️ Grace period 1 failed: $e');
+      }
+
+      final gracePeriod2 = scheduled.add(const Duration(seconds: 60));
+      try {
+        await _zonedSchedule(
+          id: currentId + 60000,
+          scheduledDate: gracePeriod2,
+          channelId: 'carelanka_medication_channel',
+          channelName: 'CareLanka Medication Reminders',
+          title: 'Time for your medication 💊',
+          body: dosage.isNotEmpty
+              ? '$title $dosage${condition.isNotEmpty ? ' — $condition' : ''}'
+              : '$title${condition.isNotEmpty ? ' — $condition' : ''}',
+          matchDateTimeComponents: null,
+          notificationDetails: details,
+          payload: payload,
+        );
+        debugPrint('⏰ GRACE PERIOD 2 (60s): $title at ${gracePeriod2.hour}:${gracePeriod2.minute}:${gracePeriod2.second}');
+      } catch (e) {
+        debugPrint('⚠️ Grace period 2 failed: $e');
       }
 
       debugPrint('🔔 ATTEMPTING TO SCHEDULE: $title at $timeStr');
@@ -511,15 +531,51 @@ class NotificationService {
     for (final offset in offsets) {
       final when = appointmentTime.subtract(offset);
       if (when.isBefore(DateTime.now())) continue;
+      final scheduled = tz.TZDateTime.from(when, tz.local);
+      final currentId = id++;
       await _zonedSchedule(
-        id: id++,
-        scheduledDate: tz.TZDateTime.from(when, tz.local),
+        id: currentId,
+        scheduledDate: scheduled,
         channelId: 'appointment_reminders',
         channelName: 'Appointment Reminders',
         title: 'Appointment reminder',
         body: title,
         notificationDetails: details,
       );
+
+      final gracePeriod1 = scheduled.add(const Duration(seconds: 30));
+      try {
+        await _zonedSchedule(
+          id: currentId + 50000,
+          scheduledDate: gracePeriod1,
+          channelId: 'appointment_reminders',
+          channelName: 'Appointment Reminders',
+          title: 'Appointment reminder',
+          body: title,
+          matchDateTimeComponents: null,
+          notificationDetails: details,
+        );
+        debugPrint('⏰ GRACE PERIOD 1 (30s): $title at ${gracePeriod1.hour}:${gracePeriod1.minute}:${gracePeriod1.second}');
+      } catch (e) {
+        debugPrint('⚠️ Grace period 1 failed: $e');
+      }
+
+      final gracePeriod2 = scheduled.add(const Duration(seconds: 60));
+      try {
+        await _zonedSchedule(
+          id: currentId + 60000,
+          scheduledDate: gracePeriod2,
+          channelId: 'appointment_reminders',
+          channelName: 'Appointment Reminders',
+          title: 'Appointment reminder',
+          body: title,
+          matchDateTimeComponents: null,
+          notificationDetails: details,
+        );
+        debugPrint('⏰ GRACE PERIOD 2 (60s): $title at ${gracePeriod2.hour}:${gracePeriod2.minute}:${gracePeriod2.second}');
+      } catch (e) {
+        debugPrint('⚠️ Grace period 2 failed: $e');
+      }
     }
   }
 
