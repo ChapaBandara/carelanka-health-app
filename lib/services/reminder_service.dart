@@ -498,28 +498,35 @@ class ReminderService {
     }
   }
 
-  /// Stream of ALL reminder logs for [userId] across all dates,
-  /// ordered by scheduledTime descending, capped at 500 documents
-  /// (~60 days of data for a typical user).
+  /// Stream of today's reminder logs for [userId].
+  /// Uses a scheduledTime range filter (no orderBy) to avoid
+  /// requiring a composite Firestore index.
   Stream<QuerySnapshot<Map<String, dynamic>>> watchAllReminderLogs(String userId) {
+    final now = DateTime.now();
+    final todayStart = Timestamp.fromDate(DateTime(now.year, now.month, now.day));
+    final todayEnd = Timestamp.fromDate(DateTime(now.year, now.month, now.day, 23, 59, 59));
     return _col
         .where('userId', isEqualTo: userId)
-        .orderBy('scheduledTime', descending: true)
-        .limit(500)
+        .where('scheduledTime', isGreaterThanOrEqualTo: todayStart)
+        .where('scheduledTime', isLessThanOrEqualTo: todayEnd)
         .snapshots();
   }
 
-  /// Stream filtered by [status] for [userId] across all dates,
-  /// ordered by scheduledTime descending, capped at 500 documents.
+  /// Stream of today's reminder logs for [userId] filtered by [status].
+  /// Uses a scheduledTime range filter (no orderBy) to avoid
+  /// requiring a composite Firestore index.
   Stream<QuerySnapshot<Map<String, dynamic>>> watchReminderLogsByStatus(
     String userId,
     String status,
   ) {
+    final now = DateTime.now();
+    final todayStart = Timestamp.fromDate(DateTime(now.year, now.month, now.day));
+    final todayEnd = Timestamp.fromDate(DateTime(now.year, now.month, now.day, 23, 59, 59));
     return _col
         .where('userId', isEqualTo: userId)
         .where('status', isEqualTo: status)
-        .orderBy('scheduledTime', descending: true)
-        .limit(500)
+        .where('scheduledTime', isGreaterThanOrEqualTo: todayStart)
+        .where('scheduledTime', isLessThanOrEqualTo: todayEnd)
         .snapshots();
   }
 

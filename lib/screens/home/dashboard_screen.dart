@@ -32,6 +32,8 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   bool _checkupOverdue = false;
   int _daysSinceVisit = 0;
+  // Guard: only reschedule notifications once per widget lifetime.
+  bool _notificationsScheduled = false;
 
   @override
   void initState() {
@@ -49,7 +51,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
       // Check for missed doses and auto-log them.
       await ReminderService().checkMissedReminders(uid);
       await ReminderService().autoLogMissedDoses(uid);
-      await _rescheduleAllNotifications(uid);
+
+      // Only reschedule notifications once per session to prevent
+      // duplicate ZONEDSCHEDULE calls on every rebuild / hot-reload.
+      if (!_notificationsScheduled) {
+        _notificationsScheduled = true;
+        await _rescheduleAllNotifications(uid);
+      }
+
+      // Request battery optimization exemption once per user.
+      await NotificationService.instance
+          .requestBatteryOptimizationExemption();
 
       _checkAndSendPeriodReport(uid);
 
@@ -218,6 +230,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               children: [
+                // -- TEST BUTTONS (remove before release) ------------------
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange),
+                        onPressed: () async {
+                          await NotificationService.instance
+                              .showTestNotification();
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('Instant notification sent')));
+                          }
+                        },
+                        child: const Text('Test Now'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red),
+                        onPressed: () async {
+                          await NotificationService.instance
+                              .scheduleTestIn10Seconds(
+                            medicationName: 'Paracetamol',
+                            dosage: '500mg',
+                          );
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('Check in 10 seconds...')));
+                          }
+                        },
+                        child: const Text('Test 10s'),
+                      ),
+                    ),
+                  ],
+                ),
+                // -- END TEST BUTTONS --------------------------------------
                 Consumer<FamilyProvider>(
                   builder: (context, family, _) {
                     if (!family.isViewingFamilyMember) return const SizedBox.shrink();

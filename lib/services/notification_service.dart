@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:carelanka_app/core/constants/app_routes.dart';
@@ -156,6 +157,7 @@ class NotificationService {
   Future<void> initialize() async {
     if (_initialized) return;
     tz.initializeTimeZones();
+    tz.setLocalLocation(tz.getLocation('Asia/Colombo'));
 
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     const ios = DarwinInitializationSettings(
@@ -210,6 +212,12 @@ class NotificationService {
     } catch (_) {
       // Not implemented on this Android version or device — safe to ignore.
     }
+
+    debugPrint('NotificationService initialized');
+    debugPrint('Timezone local: ${tz.local}');
+
+    final pending = await _plugin.pendingNotificationRequests();
+    debugPrint('Pending on startup: ${pending.length}');
 
     _initialized = true;
   }
@@ -869,12 +877,86 @@ class NotificationService {
   }
 
   tz.TZDateTime _nextInstance(int hour, int minute) {
-    final now = tz.TZDateTime.now(tz.local);
-    var scheduled =
-        tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
+    final colombo = tz.getLocation('Asia/Colombo');
+    final now = tz.TZDateTime.now(colombo);
+    tz.TZDateTime scheduled =
+        tz.TZDateTime(colombo, now.year, now.month, now.day, hour, minute);
     if (scheduled.isBefore(now)) {
-      scheduled = scheduled.add(const Duration(days: 1));
+      scheduled = tz.TZDateTime(
+          colombo, now.year, now.month, now.day + 1, hour, minute);
     }
     return scheduled;
+  }
+
+  // ── Battery optimization exemption ───────────────────────────────────────
+
+  /// Opens the system "ignore battery optimizations" dialog on Android.
+  /// Silent no-op on iOS and when the app is already exempt.
+  Future<void> requestBatteryOptimizationExemption() async {
+    if (!Platform.isAndroid) return;
+    try {
+      const platform =
+          MethodChannel('com.chapabandara.carelanka_app/battery');
+      await platform.invokeMethod('requestBatteryOptimization');
+    } catch (e) {
+      debugPrint('Battery optimization request: $e');
+    }
+  }
+
+  // -- Test helpers (remove before release) --------------------------------
+
+  Future<void> showTestNotification() async {
+    await _plugin.show(
+      id: 999,
+      title: '💊 CareLanka Test',
+      body: 'Notifications are working correctly',
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'carelanka_medication_channel',
+          'CareLanka Medication Reminders',
+          importance: Importance.max,
+          priority: Priority.max,
+          fullScreenIntent: true,
+        ),
+      ),
+    );
+    debugPrint('Test notification shown');
+  }
+
+  Future<void> scheduleTestIn10Seconds({
+    required String medicationName,
+    required String dosage,
+  }) async {
+    final tz.TZDateTime scheduledDate =
+        tz.TZDateTime.now(tz.getLocation('Asia/Colombo'))
+            .add(const Duration(seconds: 10));
+
+    await _plugin.zonedSchedule(
+      id: 998,
+      title: '💊 10-Second Test',
+      body: '$medicationName $dosage — Test reminder',
+      scheduledDate: scheduledDate,
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'carelanka_medication_channel',
+          'CareLanka Medication Reminders',
+          importance: Importance.max,
+          priority: Priority.max,
+          fullScreenIntent: true,
+          category: AndroidNotificationCategory.alarm,
+          playSound: true,
+          enableVibration: true,
+        ),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+    );
+
+    debugPrint('10-second test notification scheduled for: $scheduledDate');
+
+    final pending = await _plugin.pendingNotificationRequests();
+    debugPrint('Total pending notifications: ${pending.length}');
+    for (final n in pending) {
+      debugPrint('Pending: id=${n.id} title=${n.title}');
+    }
   }
 }
