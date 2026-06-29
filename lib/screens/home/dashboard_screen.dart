@@ -44,18 +44,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final uid = context.activeUid;
       if (uid.isEmpty) return;
 
-      // Fire-and-forget background tasks.
-      ReminderService().runAdaptiveLogic(uid).catchError((_) {});
+      // Stock check is purely read-only — safe to fire-and-forget always.
       AdherenceService().checkAllMedicationsStock(uid).catchError((_) {});
 
       // Check for missed doses and auto-log them.
       await ReminderService().checkMissedReminders(uid);
       await ReminderService().autoLogMissedDoses(uid);
 
-      // Only reschedule notifications once per session to prevent
-      // duplicate ZONEDSCHEDULE calls on every rebuild / hot-reload.
+      // Only run notification-touching logic once per widget lifetime.
+      // runAdaptiveLogic is guarded here too because it internally calls
+      // scheduleMedicationReminders — running it concurrently with
+      // _rescheduleAllNotifications caused triple-scheduling on dashboard load.
       if (!_notificationsScheduled) {
         _notificationsScheduled = true;
+        await ReminderService().runAdaptiveLogic(uid);
         await _rescheduleAllNotifications(uid);
       }
 
@@ -215,7 +217,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     return Consumer<FamilyProvider>(
       builder: (context, familyProvider, _) {
-        final userId = context.activeUid;
         return Consumer2<AuthProvider, UserDataProvider>(
       builder: (context, auth, data, _) {
         final profile = auth.profile;
@@ -230,48 +231,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               children: [
-                // -- TEST BUTTONS (remove before release) ------------------
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orange),
-                        onPressed: () async {
-                          await NotificationService.instance
-                              .showTestNotification();
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('Instant notification sent')));
-                          }
-                        },
-                        child: const Text('Test Now'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red),
-                        onPressed: () async {
-                          await NotificationService.instance
-                              .scheduleTestIn10Seconds(
-                            medicationName: 'Paracetamol',
-                            dosage: '500mg',
-                          );
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('Check in 10 seconds...')));
-                          }
-                        },
-                        child: const Text('Test 10s'),
-                      ),
-                    ),
-                  ],
-                ),
-                // -- END TEST BUTTONS --------------------------------------
                 Consumer<FamilyProvider>(
                   builder: (context, family, _) {
                     if (!family.isViewingFamilyMember) return const SizedBox.shrink();

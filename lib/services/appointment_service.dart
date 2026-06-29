@@ -61,6 +61,7 @@ class AppointmentService {
       'reminders': (d['reminderSettings'] as List?)?.join('|') ?? '',
       'period': dt.isBefore(DateTime.now()) ? 'past' : 'upcoming',
       'dateTimeMillis': dt.millisecondsSinceEpoch.toString(),
+      'status': d['status'] as String? ?? '',
     };
   }
 
@@ -105,5 +106,14 @@ class AppointmentService {
 
   Future<void> deleteAppointment(String appointmentId) async {
     await _col.doc(appointmentId).delete();
+  }
+
+  /// Marks an appointment as completed (user met the doctor).
+  /// The appointment is kept in Firestore for history but flagged as completed.
+  Future<void> markAsCompleted(String appointmentId) async {
+    await _col.doc(appointmentId).update({
+      'status': 'completed',
+      'completedAt': Timestamp.fromDate(DateTime.now()),
+    });
   }
 }

@@ -29,6 +29,7 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
   bool _remind3Days = true;
   bool _remind1Day = true;
   bool _remind2Hours = true;
+  bool _remind1Hour = true;
   bool _saving = false;
   bool _isEdit = false;
   String? _editAppointmentId;
@@ -62,6 +63,7 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
       _remind3Days = reminders.contains('3 days');
       _remind1Day = reminders.contains('1 day');
       _remind2Hours = reminders.contains('2 hours');
+      _remind1Hour = reminders.contains('1 hour');
     });
   }
 
@@ -99,6 +101,7 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
     if (_remind3Days) list.add('3 days');
     if (_remind1Day) list.add('1 day');
     if (_remind2Hours) list.add('2 hours');
+    if (_remind1Hour) list.add('1 hour');
     return list;
   }
 
@@ -137,6 +140,7 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
             appointmentId: _editAppointmentId ?? '${userId}_${dt.millisecondsSinceEpoch}',
             title: 'Appointment with ${_doctor.text.trim()}',
             appointmentTime: dt,
+            reminderSettings: _selectedReminders,
           );
         } catch (_) {}
       }
@@ -282,6 +286,13 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
                         value: _remind2Hours,
                         activeThumbColor: AppColors.primaryTeal,
                         onChanged: (v) => setState(() => _remind2Hours = v),
+                      ),
+                      const Divider(height: 1),
+                      SwitchListTile(
+                        title: const Text('1 hour before'),
+                        value: _remind1Hour,
+                        activeThumbColor: AppColors.primaryTeal,
+                        onChanged: (v) => setState(() => _remind1Hour = v),
                       ),
                     ],
                   ),

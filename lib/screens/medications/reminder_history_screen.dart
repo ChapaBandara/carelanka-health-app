@@ -34,6 +34,36 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
     _autoLogMissedDoses();
   }
 
+  /// Fetches the set of medication IDs that are linked to ACTIVE (non-completed) illnesses.
+  /// Used to filter reminder history — completed illness medications are excluded.
+  Future<Set<String>> _fetchActiveMedicationIds(String userId) async {
+    try {
+      // Get all non-completed illness IDs
+      final illnessSnap = await FirebaseFirestore.instance
+          .collection('illnesses')
+          .where('userId', isEqualTo: userId)
+          .get();
+      final activeIllnessIds = illnessSnap.docs
+          .where((d) => (d.data()['status'] as String? ?? 'active') != 'completed')
+          .map((d) => d.id)
+          .toSet();
+
+      // Get all active medications linked to active illnesses
+      final medSnap = await FirebaseFirestore.instance
+          .collection('medications')
+          .where('userId', isEqualTo: userId)
+          .where('active', isEqualTo: true)
+          .get();
+
+      return medSnap.docs
+          .where((d) => activeIllnessIds.contains(d.data()['illnessId'] as String? ?? ''))
+          .map((d) => d.id)
+          .toSet();
+    } catch (_) {
+      return {};
+    }
+  }
+
   /// Auto-logs any missed doses for the current user when the screen opens.
   Future<void> _autoLogMissedDoses() async {
     try {
@@ -150,14 +180,30 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
               ],
             ),
           ),
-          body: TabBarView(
+          body: FutureBuilder<Set<String>>(
+            future: _fetchActiveMedicationIds(userId),
+            builder: (context, activeMedSnap) {
+              final activeMedIds = activeMedSnap.data ?? {};
+              // When future is still loading, show empty set (shows all);
+              // once resolved, filter to only active meds.
+              final effectiveMedIds = activeMedSnap.connectionState == ConnectionState.done
+                  ? activeMedIds
+                  : <String>{}; // show unfiltered while loading
+
+              bool isActiveMed(Map<String, dynamic> item) {
+                if (effectiveMedIds.isEmpty) return true; // loading or no data
+                final medId = item['medicationId'] as String? ?? '';
+                return medId.isEmpty || effectiveMedIds.contains(medId);
+              }
+
+              return TabBarView(
             controller: _tab,
             children: [
               // ── ALL TAB ───────────────────────────────────────────────────
               _FirestoreLogTab(
                 stream: service.watchAllReminderLogs(userId),
                 docToDisplay: _docToDisplay,
-                matchesSearch: _matchesSearch,
+                matchesSearch: (item) => _matchesSearch(item) && isActiveMed(item),
                 filterStatus: null,
                 emptyIcon: Icons.history,
                 emptyTitle: 'No reminder history yet',
@@ -168,7 +214,7 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
               _FirestoreLogTab(
                 stream: service.watchReminderLogsByStatus(userId, 'confirmed'),
                 docToDisplay: _docToDisplay,
-                matchesSearch: _matchesSearch,
+                matchesSearch: (item) => _matchesSearch(item) && isActiveMed(item),
                 filterStatus: 'confirmed',
                 emptyIcon: Icons.check_circle_outline,
                 emptyTitle: 'No confirmed doses yet',
@@ -179,7 +225,7 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
               _FirestoreLogTab(
                 stream: service.watchReminderLogsByStatus(userId, 'missed'),
                 docToDisplay: _docToDisplay,
-                matchesSearch: _matchesSearch,
+                matchesSearch: (item) => _matchesSearch(item) && isActiveMed(item),
                 filterStatus: 'missed',
                 emptyIcon: Icons.check_circle_outline,
                 emptyTitle: 'No missed doses yet',
@@ -189,7 +235,7 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
               _FirestoreLogTab(
                 stream: service.watchReminderLogsByStatus(userId, 'snoozed'),
                 docToDisplay: _docToDisplay,
-                matchesSearch: _matchesSearch,
+                matchesSearch: (item) => _matchesSearch(item) && isActiveMed(item),
                 filterStatus: 'snoozed',
                 emptyIcon: Icons.schedule,
                 emptyTitle: 'No snoozed doses yet',
@@ -197,6 +243,8 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
                     'Snoozed medications will appear here until you take them.',
               ),
             ],
+          );
+            },
           ),
         );
       },

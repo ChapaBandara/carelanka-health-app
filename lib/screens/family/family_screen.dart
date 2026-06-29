@@ -67,7 +67,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
         passwordController.dispose();
         return;
       }
-      if (context.read<FamilyProvider>().activeProfileId == member['profileId']) {
+      if (context.read<FamilyProvider>().activeFamilyProfileId == member['profileId']) {
         context.read<FamilyProvider>().switchToSelf();
       }
       if (mounted) {
@@ -116,30 +116,11 @@ class _FamilyScreenState extends State<FamilyScreen> {
                     leading: CircleAvatar(child: Text(m['initials'] ?? '?')),
                     title: Text(m['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.w700)),
                     subtitle: Text(m['meta'] ?? ''),
-                    trailing: family.activeProfileId == m['profileId']
+                    trailing: family.activeFamilyProfileId == m['profileId']
                         ? const Icon(Icons.check, color: AppColors.primaryTeal)
                         : null,
                     onTap: () {
-                      final hasOwnAccount = m['hasOwnAccount'] == 'true';
-                      final linkedUid = m['linkedUserId'] ?? '';
-
-                      if (!hasOwnAccount || linkedUid.isEmpty) {
-                        // Dependent profile — show info message
-                        Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              '${m['name'] ?? 'This member'} is a dependent profile. '
-                              'Their health data is managed under your account. '
-                              'To see separate data, they need their own CareLanka account.'),
-                            backgroundColor: AppColors.primaryTeal,
-                            duration: const Duration(seconds: 4),
-                          ),
-                        );
-                        return;
-                      }
-
-                      // Has own account — proceed with switch
+                      // Always allow switching — dependents use scopeId-based data partitioning
                       family.switchToMember(m);
                       Navigator.pop(ctx);
                       Navigator.pushNamedAndRemoveUntil(
@@ -349,7 +330,6 @@ class _FamilyScreenState extends State<FamilyScreen> {
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
         onTap: () {
-          context.read<FamilyProvider>().switchToMember(member);
           Navigator.pushNamed(context, AppRoutes.familyDetail, arguments: member);
         },
         child: Padding(

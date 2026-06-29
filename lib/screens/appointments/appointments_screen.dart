@@ -50,8 +50,12 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> with SingleTick
       stream: AppointmentService().watchAppointmentMaps(userId),
       builder: (context, snapshot) {
         final appointments = snapshot.data ?? [];
-        final upcoming = appointments.where((a) => a['period'] != 'past').toList();
-        final past = appointments.where((a) => a['period'] == 'past').toList();
+        final upcoming = appointments
+            .where((a) => a['period'] != 'past' && a['status'] != 'completed')
+            .toList();
+        final past = appointments
+            .where((a) => a['period'] == 'past' || a['status'] == 'completed')
+            .toList();
 
         return Scaffold(
           backgroundColor: AppColors.background,
@@ -145,9 +149,6 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> with SingleTick
     final appointmentId = appointment['appointmentId'] ?? '';
     final doctor = appointment['doctor'] ?? '';
     final badge = isPast ? '' : (appointment['badge'] ?? '');
-    final reminders = isPast
-        ? <String>[]
-        : (appointment['reminders'] ?? '').split('|').where((s) => s.isNotEmpty).toList();
 
     final cardColor = isPast ? const Color(0xFFF0F0F0) : Colors.white;
     final dateStripColor = isPast ? const Color(0xFFB0B0B0) : AppColors.primaryTeal;
@@ -260,6 +261,30 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> with SingleTick
                                 style: TextStyle(color: metaColor, fontSize: 13, fontStyle: FontStyle.italic),
                               ),
                             ],
+                            // Met Doctor button — only shown on TODAY's appointments
+                            if (!isPast && badge == 'TODAY') ...[
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.primaryTeal,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 10),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    elevation: 0,
+                                  ),
+                                  onPressed: () => _markMetDoctor(context, appointmentId, doctor),
+                                  icon: const Icon(Icons.check_circle_outline, size: 18),
+                                  label: const Text(
+                                    'Met Doctor ✓',
+                                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -293,6 +318,45 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> with SingleTick
         ),
       ),
     );
+  }
+
+  Future<void> _markMetDoctor(BuildContext context, String appointmentId, String doctor) async {
+    // Capture context-dependent objects before the first await.
+    final messenger = ScaffoldMessenger.of(context);
+    void showError(Object e) => showFirebaseErrorSnackBar(context, firebaseErrorMessage(e));
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirm visit?'),
+        content: Text('Mark your appointment with $doctor as completed?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.primaryTeal),
+            child: const Text('Met Doctor ✓', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await AppointmentService().markAsCompleted(appointmentId);
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('✅ Visit confirmed! Great job staying on top of your health.'),
+          backgroundColor: AppColors.primaryTeal,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      showError(e);
+    }
   }
 
   Future<bool> _confirmDelete(BuildContext context, String doctor) async {

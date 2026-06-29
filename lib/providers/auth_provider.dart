@@ -96,7 +96,7 @@ class AuthProvider extends ChangeNotifier {
     if (isDependent) {
       await _userService.updateUser(uid, {
         'isDependent': true,
-        'guardianName': ?guardianName,
+          'guardianName': ?guardianName,
       });
     }
 

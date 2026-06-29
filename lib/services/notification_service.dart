@@ -515,10 +515,10 @@ class NotificationService {
     required String appointmentId,
     required String title,
     required DateTime appointmentTime,
-    List<Duration> offsets = const [
-      Duration(hours: 2),
-      Duration(days: 1),
-    ],
+    /// User-selected reminder strings from toggle settings.
+    /// Supported values: '3 days', '1 day', '2 hours', '1 hour'
+    /// When empty, schedules default reminders: 1 day and 2 hours before.
+    List<String> reminderSettings = const [],
   }) async {
     await initialize();
     final vibrate = await _vibrateForCurrentUser();
@@ -539,22 +539,47 @@ class NotificationService {
         presentSound: true,
       ),
     );
+
+    // Map user-selected reminder strings to Duration offsets.
+    final reminderMap = {
+      '3 days': const Duration(days: 3),
+      '1 day': const Duration(days: 1),
+      '2 hours': const Duration(hours: 2),
+      '1 hour': const Duration(hours: 1),
+    };
+
+    // If no settings provided, default to 1 day + 2 hours.
+    final selectedSettings = reminderSettings.isNotEmpty
+        ? reminderSettings
+        : ['1 day', '2 hours'];
+
+    final offsets = selectedSettings
+        .map((s) => reminderMap[s])
+        .whereType<Duration>()
+        .toList();
+
     var id = appointmentId.hashCode.abs() % 200000;
     for (final offset in offsets) {
       final when = appointmentTime.subtract(offset);
       if (when.isBefore(DateTime.now())) continue;
       final scheduled = tz.TZDateTime.from(when, tz.local);
       final currentId = id++;
+
+      final label = offset.inDays >= 1
+          ? '${offset.inDays} day${offset.inDays > 1 ? 's' : ''} before'
+          : '${offset.inHours} hour${offset.inHours > 1 ? 's' : ''} before';
+
       await _zonedSchedule(
         id: currentId,
         scheduledDate: scheduled,
         channelId: 'appointment_reminders',
         channelName: 'Appointment Reminders',
-        title: 'Appointment reminder',
+        title: 'Appointment reminder — $label',
         body: title,
         notificationDetails: details,
       );
 
+      // Grace period notifications for Samsung Doze workaround
       final gracePeriod1 = scheduled.add(const Duration(seconds: 30));
       try {
         await _zonedSchedule(
@@ -562,12 +587,11 @@ class NotificationService {
           scheduledDate: gracePeriod1,
           channelId: 'appointment_reminders',
           channelName: 'Appointment Reminders',
-          title: 'Appointment reminder',
+          title: 'Appointment reminder — $label',
           body: title,
           matchDateTimeComponents: null,
           notificationDetails: details,
         );
-        debugPrint('⏰ GRACE PERIOD 1 (30s): $title at ${gracePeriod1.hour}:${gracePeriod1.minute}:${gracePeriod1.second}');
       } catch (e) {
         debugPrint('⚠️ Grace period 1 failed: $e');
       }
@@ -579,14 +603,49 @@ class NotificationService {
           scheduledDate: gracePeriod2,
           channelId: 'appointment_reminders',
           channelName: 'Appointment Reminders',
-          title: 'Appointment reminder',
+          title: 'Appointment reminder — $label',
           body: title,
           matchDateTimeComponents: null,
           notificationDetails: details,
         );
-        debugPrint('⏰ GRACE PERIOD 2 (60s): $title at ${gracePeriod2.hour}:${gracePeriod2.minute}:${gracePeriod2.second}');
       } catch (e) {
         debugPrint('⚠️ Grace period 2 failed: $e');
+      }
+    }
+
+    // ── Appointment-day alerts ──────────────────────────────────────────────
+    // Always schedule 2h, 1h, and 30min alerts on the appointment day itself.
+    // These fire regardless of user pre-appointment toggle settings.
+    final dayAlerts = [
+      const Duration(hours: 2),
+      const Duration(hours: 1),
+      const Duration(minutes: 30),
+    ];
+    var dayAlertId = (appointmentId.hashCode.abs() % 200000) + 3000;
+    for (final offset in dayAlerts) {
+      final when = appointmentTime.subtract(offset);
+      if (when.isBefore(DateTime.now())) continue;
+      // Only schedule if it's on the same calendar day as the appointment.
+      final apptDay = DateTime(appointmentTime.year, appointmentTime.month, appointmentTime.day);
+      final alertDay = DateTime(when.year, when.month, when.day);
+      if (alertDay != apptDay) continue;
+
+      final scheduled = tz.TZDateTime.from(when, tz.local);
+      final mins = offset.inMinutes;
+      final label = mins >= 60 ? '${mins ~/ 60}h before' : '${mins}min before';
+
+      try {
+        await _zonedSchedule(
+          id: dayAlertId++,
+          scheduledDate: scheduled,
+          channelId: 'appointment_reminders',
+          channelName: 'Appointment Reminders',
+          title: '🏥 Appointment today — $label',
+          body: title,
+          notificationDetails: details,
+        );
+      } catch (e) {
+        debugPrint('⚠️ Day-of alert failed ($label): $e');
       }
     }
   }
