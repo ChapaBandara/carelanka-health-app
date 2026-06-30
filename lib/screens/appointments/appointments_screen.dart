@@ -44,7 +44,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> with SingleTick
   Widget build(BuildContext context) {
     return Consumer<FamilyProvider>(
       builder: (context, _, _) {
-    final userId = context.activeUid;
+    final userId = context.activeScopeId;
 
     return StreamBuilder<List<Map<String, String>>>(
       stream: AppointmentService().watchAppointmentMaps(userId),

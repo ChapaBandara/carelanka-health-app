@@ -5,7 +5,7 @@ import 'package:carelanka_app/services/checkup_service.dart';
 import 'package:carelanka_app/services/notification_service.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:carelanka_app/core/utils/active_uid.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -112,7 +112,7 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
 
     final dt = DateTime(_date!.year, _date!.month, _date!.day, _time!.hour, _time!.minute);
     try {
-      final userId = FirebaseAuth.instance.currentUser!.uid;
+      final userId = context.activeScopeId;
 
       if (_isEdit && _editAppointmentId != null) {
         await AppointmentService().updateAppointment(

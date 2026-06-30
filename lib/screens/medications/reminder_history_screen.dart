@@ -4,7 +4,6 @@ import 'package:carelanka_app/providers/family_provider.dart';
 import 'package:carelanka_app/services/reminder_service.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -31,7 +30,7 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
       setState(() => _searchQuery = _searchController.text.toLowerCase().trim());
     });
     // FIX 2: Auto-log missed doses when the history screen opens.
-    _autoLogMissedDoses();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _autoLogMissedDoses());
   }
 
   /// Fetches the set of medication IDs that are linked to ACTIVE (non-completed) illnesses.
@@ -67,8 +66,8 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
   /// Auto-logs any missed doses for the current user when the screen opens.
   Future<void> _autoLogMissedDoses() async {
     try {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid == null || uid.isEmpty) return;
+      final uid = context.activeScopeId;
+      if (uid.isEmpty) return;
       await ReminderService().checkMissedReminders(uid);
       await ReminderService().autoLogMissedDoses(uid);
     } catch (_) {
@@ -127,7 +126,7 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
   Widget build(BuildContext context) {
     return Consumer<FamilyProvider>(
       builder: (context, _, _) {
-        final userId = context.activeUid;
+        final userId = context.activeScopeId;
         final service = ReminderService();
 
         return Scaffold(

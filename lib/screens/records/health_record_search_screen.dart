@@ -70,7 +70,7 @@ class _HealthRecordSearchScreenState extends State<HealthRecordSearchScreen> {
 
     return Consumer<FamilyProvider>(
       builder: (context, _, _) {
-        final userId = context.activeUid;
+        final userId = context.activeScopeId;
 
     return StreamBuilder<List<Map<String, String>>>(
       stream: HealthRecordService().watchRecordMaps(userId),

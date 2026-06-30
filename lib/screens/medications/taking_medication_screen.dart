@@ -158,7 +158,7 @@ class TakingMedicationScreen extends StatelessWidget {
   }
 
   Future<void> _takeNow(BuildContext context, DailyDoseItem dose) async {
-    final userId = context.activeUid;
+    final userId = context.activeScopeId;
     final now = DateTime.now();
     final latency = now.difference(dose.scheduledAt).inMinutes.clamp(0, 999);
     await ReminderService().logDose(
@@ -184,7 +184,7 @@ class TakingMedicationScreen extends StatelessWidget {
   }
 
   Future<void> _snooze(BuildContext context, DailyDoseItem dose) async {
-    final userId = context.activeUid;
+    final userId = context.activeScopeId;
     final snoozeUntil = DateTime.now().add(const Duration(minutes: 15));
     await ReminderService().logDose(
       userId: userId,
@@ -209,7 +209,7 @@ class TakingMedicationScreen extends StatelessWidget {
   }
 
   Future<void> _skip(BuildContext context, DailyDoseItem dose) async {
-    final userId = context.activeUid;
+    final userId = context.activeScopeId;
     await ReminderService().logDose(
       userId: userId,
       medicationId: dose.medicationId,

@@ -2,7 +2,7 @@ import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/services/illness_service.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:carelanka_app/core/utils/active_uid.dart';
 import 'package:flutter/material.dart';
 
 /// Search illnesses — mirrors the health record search flow.
@@ -17,13 +17,15 @@ class _MedicationSearchScreenState extends State<MedicationSearchScreen> {
   final _search = TextEditingController();
   int _chip = 0;
   final _chips = ['All', 'Active', 'Completed'];
-  late final Future<List<Map<String, String>>> _illnessesFuture;
+  Future<List<Map<String, String>>>? _illnessesFuture;
   bool _initialChipApplied = false;
 
   @override
   void initState() {
     super.initState();
-    _illnessesFuture = _fetchIllnesses();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _illnessesFuture = _fetchIllnesses());
+    });
     _search.addListener(() => setState(() {}));
   }
 
@@ -50,7 +52,7 @@ class _MedicationSearchScreenState extends State<MedicationSearchScreen> {
   }
 
   Future<List<Map<String, String>>> _fetchIllnesses() async {
-    final userId = FirebaseAuth.instance.currentUser!.uid;
+    final userId = context.activeScopeId;
     final illnesses = await IllnessService().watchIllnessMaps(userId).first;
     illnesses.sort((a, b) {
       final aMs = int.tryParse(a['diagnosedDateMillis'] ?? '0') ?? 0;
@@ -90,7 +92,8 @@ class _MedicationSearchScreenState extends State<MedicationSearchScreen> {
     return FutureBuilder<List<Map<String, String>>>(
       future: _illnessesFuture,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (_illnessesFuture == null ||
+            snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             backgroundColor: AppColors.background,
             body: Center(child: CircularProgressIndicator()),

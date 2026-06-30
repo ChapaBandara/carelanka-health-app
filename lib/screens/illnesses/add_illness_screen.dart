@@ -4,7 +4,7 @@ import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/services/illness_service.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:carelanka_app/widgets/carelanka/labeled_text_field.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:carelanka_app/core/utils/active_uid.dart';
 import 'package:flutter/material.dart';
 
 class AddIllnessScreen extends StatefulWidget {
@@ -38,7 +38,7 @@ class _AddIllnessScreenState extends State<AddIllnessScreen> {
     setState(() => _saving = true);
     try {
       final illnessId = await IllnessService().addIllness(
-        userId: FirebaseAuth.instance.currentUser!.uid,
+        userId: context.activeScopeId,
         illnessName: _name.text.trim(),
         diagnosedDate: _start!,
         doctorName: _doctor.text.trim().isEmpty ? null : _doctor.text.trim(),

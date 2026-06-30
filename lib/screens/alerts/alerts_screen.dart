@@ -29,7 +29,7 @@ class _AlertsScreenState extends State<AlertsScreen> with SingleTickerProviderSt
   Widget build(BuildContext context) {
     return Consumer<FamilyProvider>(
       builder: (context, _, _) {
-    final userId = context.activeUid;
+    final userId = context.activeScopeId;
 
     return StreamBuilder<List<Map<String, String>>>(
       key: ValueKey(userId),

@@ -8,7 +8,7 @@ import 'package:carelanka_app/widgets/carelanka/labeled_text_field.dart';
 import 'package:carelanka_app/widgets/carelanka/profile_dropdown_field.dart';
 import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:carelanka_app/core/utils/active_uid.dart';
 import 'package:flutter/material.dart';
 
 class AddMedicationScreen extends StatefulWidget {
@@ -405,8 +405,8 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
   }
 
   Future<void> _loadAllergies() async {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
-    if (userId == null) return;
+    final userId = context.activeScopeId;
+    if (userId.isEmpty) return;
     try {
       final snap = await FirebaseFirestore.instance
           .collection('allergies')
@@ -496,8 +496,8 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
     }
 
     try {
-      final userId = FirebaseAuth.instance.currentUser?.uid;
-      if (userId == null) return;
+      final userId = context.activeScopeId;
+      if (userId.isEmpty) return;
 
       final illnessSnap = await FirebaseFirestore.instance
           .collection('illnesses')
@@ -562,7 +562,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false) || _saving) return;
 
-    final userId = FirebaseAuth.instance.currentUser!.uid;
+    final userId = context.activeScopeId;
     final medService = MedicationService();
     setState(() => _saving = true);
 

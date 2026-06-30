@@ -48,7 +48,7 @@ class _MedicationListScreenState extends State<MedicationListScreen>
   Widget build(BuildContext context) {
     return Consumer<FamilyProvider>(
       builder: (context, _, __) {
-        final userId = context.activeUid;
+        final userId = context.activeScopeId;
         final isActiveTab = _tab.index == 0;
 
         return Scaffold(

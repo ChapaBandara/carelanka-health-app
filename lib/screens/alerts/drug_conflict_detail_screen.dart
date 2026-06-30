@@ -3,7 +3,7 @@ import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/services/alert_service.dart';
 import 'package:carelanka_app/services/medication_service.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:carelanka_app/core/utils/active_uid.dart';
 import 'package:flutter/material.dart';
 
 class DrugConflictDetailScreen extends StatefulWidget {
@@ -34,8 +34,8 @@ class _DrugConflictDetailScreenState extends State<DrugConflictDetailScreen> {
   }
 
   Future<void> _loadMedications() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) {
+    final uid = context.activeScopeId;
+    if (uid.isEmpty) {
       if (mounted) setState(() => _loadingMeds = false);
       return;
     }

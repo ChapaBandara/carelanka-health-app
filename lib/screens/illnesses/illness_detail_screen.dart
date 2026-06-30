@@ -23,7 +23,7 @@ class IllnessDetailScreen extends StatelessWidget {
     final args = ModalRoute.of(context)?.settings.arguments;
     final illness = args is Map<String, String> ? args : null;
     final illnessId = illness?['illnessId'];
-    final userId = context.activeUid;
+    final userId = context.activeScopeId;
 
     if (illnessId == null || illnessId.isEmpty) {
       return _buildScaffold(

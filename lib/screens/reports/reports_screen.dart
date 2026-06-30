@@ -338,7 +338,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Widget build(BuildContext context) {
     return Consumer<FamilyProvider>(
       builder: (context, _, _) {
-    final userId = context.activeUid;
+    final userId = context.activeScopeId;
     final range = _periodRange();
 
     return FutureBuilder<DoseStats>(

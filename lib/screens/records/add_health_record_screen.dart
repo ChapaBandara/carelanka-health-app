@@ -6,7 +6,7 @@ import 'package:carelanka_app/services/checkup_service.dart';
 import 'package:carelanka_app/services/health_record_service.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:carelanka_app/core/utils/active_uid.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -124,7 +124,7 @@ class _AddHealthRecordScreenState extends State<AddHealthRecordScreen> {
     if (!(_formKey.currentState?.validate() ?? false) || _saving) return;
     setState(() => _saving = true);
     try {
-      final userId = FirebaseAuth.instance.currentUser!.uid;
+      final userId = context.activeScopeId;
       final parts = _doctorHospital.text.trim().split(',');
       final doctor = parts.isNotEmpty ? parts.first.trim() : _doctorHospital.text.trim();
       final hospital = parts.length > 1 ? parts.sublist(1).join(',').trim() : '';

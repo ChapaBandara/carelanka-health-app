@@ -41,7 +41,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // Run background checks and load checkup state after the first frame.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      final uid = context.activeUid;
+      final uid = context.activeScopeId;
       if (uid.isEmpty) return;
 
       // Stock check is purely read-only — safe to fire-and-forget always.
@@ -429,7 +429,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _medicationOverviewSection(BuildContext context) {
     return Consumer<FamilyProvider>(
       builder: (context, _, _) {
-    final userId = context.activeUid;
+    final userId = context.activeScopeId;
     if (userId.isEmpty) {
       return Column(
         children: [
@@ -799,7 +799,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _upcomingAppointmentsSection(BuildContext context) {
     return Consumer<FamilyProvider>(
       builder: (context, _, _) {
-    final userId = context.activeUid;
+    final userId = context.activeScopeId;
     if (userId.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -951,7 +951,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _recentAlertsSection(BuildContext context) {
     return Consumer<FamilyProvider>(
       builder: (context, _, _) {
-    final userId = context.activeUid;
+    final userId = context.activeScopeId;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

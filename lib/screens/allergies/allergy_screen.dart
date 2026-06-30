@@ -28,7 +28,7 @@ class AllergyScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<FamilyProvider>(
       builder: (context, _, _) {
-    final userId = context.activeUid;
+    final userId = context.activeScopeId;
 
     return StreamBuilder<List<Map<String, String>>>(
       stream: AllergyService().watchAllergyMaps(userId),
@@ -210,7 +210,7 @@ class AllergyScreen extends StatelessWidget {
                             if (name.text.trim().isEmpty) return;
                             try {
                               await AllergyService().addAllergy(
-                                userId: context.activeUid,
+                                userId: context.activeScopeId,
                                 allergyName: name.text.trim(),
                                 severity: severity,
                                 category: 'General',
