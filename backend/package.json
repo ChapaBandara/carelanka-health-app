@@ -1,0 +1,18 @@
+{
+  "name": "carelanka-reminder-backend",
+  "version": "1.0.0",
+  "description": "CareLanka medication reminder backend — Express + FCM",
+  "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "firebase-admin": "^12.2.0",
+    "node-cron": "^3.0.3"
+  }
+}
