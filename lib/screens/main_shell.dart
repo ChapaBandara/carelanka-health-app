@@ -60,6 +60,7 @@ class _MainShellState extends State<MainShell> {
 
   Future<void> _checkDueReminders() async {
     if (!mounted || _reminderDialogOpen) return;
+    debugPrint('🕐 _checkDueReminders called at ${DateTime.now()}');
     final uid = context.activeScopeId;
     if (uid.isEmpty) return;
 
@@ -71,6 +72,7 @@ class _MainShellState extends State<MainShell> {
         .where('userId', isEqualTo: uid)
         .where('active', isEqualTo: true)
         .get();
+    debugPrint('💊 Found ${medSnap.docs.length} active medications to check');
 
     for (final doc in medSnap.docs) {
       if (!mounted || _reminderDialogOpen) return;
@@ -101,6 +103,7 @@ class _MainShellState extends State<MainShell> {
         );
 
         final diff = now.difference(scheduledTime).inMinutes;
+        debugPrint('⏰ Checking $timeStr → scheduled: $scheduledTime, diff: $diff min');
         // Trigger only within the window [0, 2] minutes after the due time.
         if (diff < 0 || diff > 2) continue;
 
@@ -109,22 +112,51 @@ class _MainShellState extends State<MainShell> {
         if (_shownThisSession.contains(sessionKey)) continue;
 
         // Check whether a reminder_log already exists for this dose window.
-        final existing = await FirebaseFirestore.instance
-            .collection('reminder_logs')
-            .where('userId', isEqualTo: uid)
-            .where('medicationId', isEqualTo: doc.id)
-            .where(
-              'scheduledTime',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(
-                  scheduledTime.subtract(const Duration(minutes: 2))),
-            )
-            .where(
-              'scheduledTime',
-              isLessThanOrEqualTo: Timestamp.fromDate(
-                  scheduledTime.add(const Duration(minutes: 2))),
-            )
-            .limit(1)
-            .get();
+        QuerySnapshot<Map<String, dynamic>> existingSnap;
+        try {
+          existingSnap = await FirebaseFirestore.instance
+              .collection('reminder_logs')
+              .where('userId', isEqualTo: uid)
+              .where('medicationId', isEqualTo: doc.id)
+              .where(
+                'scheduledTime',
+                isGreaterThanOrEqualTo: Timestamp.fromDate(
+                    scheduledTime.subtract(const Duration(minutes: 2))),
+              )
+              .where(
+                'scheduledTime',
+                isLessThanOrEqualTo: Timestamp.fromDate(
+                    scheduledTime.add(const Duration(minutes: 2))),
+              )
+              .limit(1)
+              .get();
+        } catch (e) {
+          debugPrint('❌ Index query failed: $e');
+          existingSnap = await FirebaseFirestore.instance
+              .collection('reminder_logs')
+              .where('userId', isEqualTo: uid)
+              .where('medicationId', isEqualTo: doc.id)
+              .limit(10)
+              .get();
+          // Filter in Dart if index not ready
+          final already = existingSnap.docs.any((d) {
+            final st = d.data()['scheduledTime'];
+            if (st is! Timestamp) return false;
+            final dt = st.toDate();
+            return dt.isAfter(scheduledTime.subtract(const Duration(minutes: 2))) &&
+                   dt.isBefore(scheduledTime.add(const Duration(minutes: 2)));
+          });
+          if (already) {
+            _shownThisSession.add(sessionKey);
+            continue;
+          }
+          // Proceed to show reminder anyway
+          existingSnap = await FirebaseFirestore.instance
+              .collection('reminder_logs')
+              .limit(0)
+              .get(); // empty result = show the reminder
+        }
+        final existing = existingSnap;
 
         if (existing.docs.isNotEmpty) {
           _shownThisSession.add(sessionKey);
