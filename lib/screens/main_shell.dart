@@ -104,8 +104,8 @@ class _MainShellState extends State<MainShell> {
 
         final diff = now.difference(scheduledTime).inMinutes;
         debugPrint('⏰ Checking $timeStr → scheduled: $scheduledTime, diff: $diff min');
-        // Trigger only within the window [0, 2] minutes after the due time.
-        if (diff < 0 || diff > 2) continue;
+        // Trigger only within the window [0, 5] minutes after the due time.
+        if (diff < 0 || diff > 5) continue;
 
         final sessionKey =
             '${doc.id}_${parsed.$1}_${parsed.$2}_${todayStart.toIso8601String()}';
@@ -158,11 +158,13 @@ class _MainShellState extends State<MainShell> {
         }
         final existing = existingSnap;
 
+        debugPrint('🔍 Existing log check: found ${existing.docs.length} docs for $sessionKey');
         if (existing.docs.isNotEmpty) {
           _shownThisSession.add(sessionKey);
           continue;
         }
 
+        debugPrint('🚨 SHOWING REMINDER for $sessionKey at ${DateTime.now()}');
         _shownThisSession.add(sessionKey);
         _reminderDialogOpen = true;
 
@@ -199,10 +201,19 @@ class _MainShellState extends State<MainShell> {
           mealTiming: data['mealTiming'] as String? ?? '',
         );
 
+        // Play sound for in-app reminder
+        try {
+          await NotificationService.instance.showImmediateReminder(
+            medicationName: data['name'] as String? ?? 'Medication',
+            dosage: data['dosage'] as String? ?? '',
+          );
+        } catch (_) {}
+
         await navState.pushNamed(
           AppRoutes.takingMedication,
           arguments: dose,
         );
+        debugPrint('✅ REMINDER SCREEN DISMISSED for $sessionKey');
 
         _reminderDialogOpen = false;
         return; // Show at most one reminder per check cycle.

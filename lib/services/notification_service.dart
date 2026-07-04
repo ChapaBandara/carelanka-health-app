@@ -723,6 +723,28 @@ class NotificationService {
 
   // ── One-shot show helpers ─────────────────────────────────────────────────
 
+  Future<void> showImmediateReminder({
+    required String medicationName,
+    required String dosage,
+  }) async {
+    await _plugin.show(
+      id: 997,
+      title: '💊 Time for your medication',
+      body: '$medicationName $dosage',
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'carelanka_medication_channel',
+          'CareLanka Medication Reminders',
+          importance: Importance.max,
+          priority: Priority.max,
+          playSound: true,
+          enableVibration: true,
+          fullScreenIntent: true,
+        ),
+      ),
+    );
+  }
+
   Future<void> showCheckupSuggestion({required int daysSinceCheckup}) async {
     await initialize();
     const id = 900001;
