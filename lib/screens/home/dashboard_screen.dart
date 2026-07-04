@@ -563,7 +563,46 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<Map<String, dynamic>?> _getNextReminder(String userId) async {
     try {
       final now = DateTime.now();
-      final snap = await FirebaseFirestore.instance
+      final todayStart = DateTime(now.year, now.month, now.day);
+      final todayEnd = todayStart.add(const Duration(days: 1));
+
+      // 1. Fetch active illnesses to build a filter set (exclude completed).
+      final illnessSnap = await FirebaseFirestore.instance
+          .collection('illnesses')
+          .where('userId', isEqualTo: userId)
+          .get();
+      final activeIllnessIds = <String>{};
+      final illnessNames = <String, String>{};
+      for (final doc in illnessSnap.docs) {
+        final d = doc.data();
+        illnessNames[doc.id] = d['illnessName'] as String? ?? '';
+        final status = d['status'] as String? ?? 'active';
+        if (status != 'completed') activeIllnessIds.add(doc.id);
+      }
+
+      // 2. Fetch today's reminder logs to know which doses are already taken.
+      final logSnap = await FirebaseFirestore.instance
+          .collection('reminder_logs')
+          .where('userId', isEqualTo: userId)
+          .where('scheduledTime',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
+          .where('scheduledTime', isLessThan: Timestamp.fromDate(todayEnd))
+          .get();
+      // Build set of "medId-hour-minute" keys for taken/confirmed doses.
+      final takenKeys = <String>{};
+      for (final doc in logSnap.docs) {
+        final d = doc.data();
+        final st = d['scheduledTime'];
+        if (st is! Timestamp) continue;
+        final dt = st.toDate();
+        final logStatus = (d['status'] as String? ?? '').toLowerCase();
+        if (logStatus == 'confirmed' || logStatus == 'taken') {
+          takenKeys.add('${d['medicationId']}-${dt.hour}-${dt.minute}');
+        }
+      }
+
+      // 3. Fetch active medications.
+      final medSnap = await FirebaseFirestore.instance
           .collection('medications')
           .where('userId', isEqualTo: userId)
           .where('active', isEqualTo: true)
@@ -571,12 +610,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       final upcoming = <Map<String, dynamic>>[];
 
-      for (final doc in snap.docs) {
+      for (final doc in medSnap.docs) {
         final data = doc.data();
-        final times = List<String>.from(
-            data['scheduledTimes'] as List? ?? []);
+        final illnessId = data['illnessId'] as String? ?? '';
+
+        // Skip medications whose illness is completed.
+        if (!activeIllnessIds.contains(illnessId)) continue;
+
+        final times = List<String>.from(data['scheduledTimes'] as List? ?? []);
         final name = data['name'] as String? ?? '';
-        final condition = data['condition'] as String? ?? '';
+        // Resolve condition name from illness, not the (often empty) field.
+        final condition = illnessNames[illnessId] ?? data['condition'] as String? ?? '';
 
         for (final timeStr in times) {
           final parts = timeStr.split(':');
@@ -584,26 +628,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
           var hour = int.tryParse(parts[0]) ?? 0;
           final minPart = parts[1].replaceAll(RegExp(r'[^0-9]'), '');
           final minute = int.tryParse(minPart) ?? 0;
-          if (timeStr.toLowerCase().contains('pm') && hour < 12) {
-            hour += 12;
-          }
-          final scheduled = DateTime(
-              now.year, now.month, now.day, hour, minute);
-          if (scheduled.isAfter(now)) {
-            upcoming.add({
-              'name': name,
-              'condition': condition,
-              'time': timeStr,
-              'scheduledAt': scheduled,
-            });
-          }
+          if (timeStr.toLowerCase().contains('pm') && hour < 12) hour += 12;
+          if (timeStr.toLowerCase().contains('am') && hour == 12) hour = 0;
+
+          final scheduled = DateTime(now.year, now.month, now.day, hour, minute);
+
+          // Must be in the future and not already taken.
+          if (!scheduled.isAfter(now)) continue;
+          final doseKey = '${doc.id}-${scheduled.hour}-${scheduled.minute}';
+          if (takenKeys.contains(doseKey)) continue;
+
+          upcoming.add({
+            'name': name,
+            'condition': condition,
+            'time': timeStr,
+            'scheduledAt': scheduled,
+          });
         }
       }
 
+      debugPrint('📋 Dashboard medications: ${upcoming.map((m) => m['name']).toList()}');
+
       if (upcoming.isEmpty) return null;
       upcoming.sort((a, b) =>
-          (a['scheduledAt'] as DateTime)
-              .compareTo(b['scheduledAt'] as DateTime));
+          (a['scheduledAt'] as DateTime).compareTo(b['scheduledAt'] as DateTime));
       return upcoming.first;
     } catch (_) {
       return null;
@@ -625,7 +673,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 Text('Next Reminder', style: TextStyle(fontSize: 13, color: AppColors.textGrey)),
                 SizedBox(height: 6),
-                Text('None scheduled', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+                Text('All done for today! ✅', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textDark)),
               ],
             ),
           ),
