@@ -1,5 +1,6 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/constants/app_routes.dart';
+import 'package:carelanka_app/core/navigation/app_route_observer.dart';
 import 'package:carelanka_app/core/utils/active_uid.dart';
 import 'package:carelanka_app/core/utils/greeting_helper.dart';
 import 'package:carelanka_app/core/utils/medication_schedule_helper.dart';
@@ -29,11 +30,37 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen> with RouteAware {
   bool _checkupOverdue = false;
   int _daysSinceVisit = 0;
   // Guard: only reschedule notifications once per widget lifetime.
   bool _notificationsScheduled = false;
+  // Incremented after returning from any push route so the FutureBuilder
+  // for "next reminder" re-runs its async fetch with a fresh timestamp.
+  int _nextReminderKey = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Subscribe to route events so didPopNext fires when a pushed screen pops.
+    final route = ModalRoute.of(context);
+    if (route != null) authRouteObserver.subscribe(this, route);
+  }
+
+  @override
+  void dispose() {
+    authRouteObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  /// Called when a route that was pushed on top of this one is popped.
+  /// Increment the key so the next-reminder FutureBuilder re-runs with a
+  /// fresh `now` — this ensures the grace-window filter sees the correct time
+  /// after TakingMedicationScreen (or any other overlay) is dismissed.
+  @override
+  void didPopNext() {
+    if (mounted) setState(() => _nextReminderKey++);
+  }
 
   @override
   void initState() {
@@ -486,7 +513,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             adherence: adherence,
                           ),
                         const SizedBox(height: 14),
+                        // Key changes whenever _nextReminderKey increments
+                        // (after returning from a push route), forcing the
+                        // FutureBuilder to re-run with a fresh `now` timestamp.
                         FutureBuilder<Map<String, dynamic>?>(
+                          key: ValueKey('next_reminder_$_nextReminderKey'),
                           future: _getNextReminder(userId),
                           builder: (context, snapshot) {
                             final next = snapshot.data;
@@ -633,8 +664,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           final scheduled = DateTime(now.year, now.month, now.day, hour, minute);
 
-          // Must be in the future and not already taken.
-          if (!scheduled.isAfter(now)) continue;
+          // Show doses that are in the future OR were scheduled within the
+          // last 10 minutes (grace window). This prevents the card from
+          // disappearing immediately after TakingMedicationScreen is dismissed
+          // when the scheduled time has just passed.
+          final graceStart = now.subtract(const Duration(minutes: 10));
+          if (!scheduled.isAfter(graceStart)) continue;
           final doseKey = '${doc.id}-${scheduled.hour}-${scheduled.minute}';
           if (takenKeys.contains(doseKey)) continue;
 
