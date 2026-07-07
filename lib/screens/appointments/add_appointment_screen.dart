@@ -136,8 +136,12 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
 
       if (!dt.isBefore(DateTime.now())) {
         try {
+          final apptId = _editAppointmentId ?? '${userId}_${dt.millisecondsSinceEpoch}';
+          // Cancel any previously scheduled reminders before rescheduling
+          // (this is a no-op for new appointments).
+          await NotificationService.instance.cancelAppointmentReminders(apptId);
           await NotificationService.instance.scheduleAppointmentReminders(
-            appointmentId: _editAppointmentId ?? '${userId}_${dt.millisecondsSinceEpoch}',
+            appointmentId: apptId,
             title: 'Appointment with ${_doctor.text.trim()}',
             appointmentTime: dt,
             reminderSettings: _selectedReminders,

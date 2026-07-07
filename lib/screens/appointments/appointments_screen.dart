@@ -4,6 +4,7 @@ import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
 import 'package:carelanka_app/core/utils/active_uid.dart';
 import 'package:carelanka_app/providers/family_provider.dart';
 import 'package:carelanka_app/services/appointment_service.dart';
+import 'package:carelanka_app/services/notification_service.dart';
 import 'package:carelanka_app/widgets/carelanka/carelanka_bottom_nav.dart';
 import 'package:carelanka_app/widgets/carelanka/gradient_buttons.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
@@ -381,6 +382,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> with SingleTick
   Future<void> _deleteAppointment(String appointmentId) async {
     if (appointmentId.isEmpty) return;
     try {
+      // Cancel any scheduled notifications before deleting the record.
+      await NotificationService.instance.cancelAppointmentReminders(appointmentId);
       await AppointmentService().deleteAppointment(appointmentId);
     } catch (e) {
       if (!mounted) return;

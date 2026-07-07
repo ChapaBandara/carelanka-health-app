@@ -187,8 +187,8 @@ class NotificationService {
       debugPrint('⚠️ Could not request SCHEDULE_EXACT_ALARM: $e');
     }
 
-    // Explicitly create the notification channel so Samsung and other OEM
-    // devices register it with maximum importance before the first notification.
+    // Explicitly create notification channels so Samsung and other OEM devices
+    // register them with maximum importance before the first notification fires.
     await androidPlugin?.createNotificationChannel(
       const AndroidNotificationChannel(
         'carelanka_medication_channel',
@@ -201,6 +201,21 @@ class NotificationService {
       ),
     );
     debugPrint('✅ Notification channel created: carelanka_medication_channel');
+
+    // Create the appointment reminders channel.
+    // Without this, Android 8+ silently drops all appointment notifications.
+    await androidPlugin?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        'appointment_reminders',
+        'Appointment Reminders',
+        description: 'Reminders for upcoming doctor appointments',
+        importance: Importance.high,
+        playSound: true,
+        enableVibration: true,
+        showBadge: true,
+      ),
+    );
+    debugPrint('✅ Notification channel created: appointment_reminders');
 
     // On Android 14+ (API 34+) USE_FULL_SCREEN_INTENT is a runtime permission.
     // We request it via a MethodChannel call; if the channel is not registered
@@ -506,7 +521,30 @@ class NotificationService {
     var id = medicationId.hashCode.abs() % 100000;
     for (var i = 0; i < timeCount; i++) {
       await _plugin.cancel(id: id++);
+      // Also cancel grace-period fallback notifications.
+      await _plugin.cancel(id: id + 50000);
+      await _plugin.cancel(id: id + 60000);
     }
+  }
+
+  /// Cancels all scheduled notifications for a given appointment.
+  /// Call this before rescheduling (edit) or when deleting an appointment.
+  Future<void> cancelAppointmentReminders(String appointmentId) async {
+    await initialize();
+    // Cancel pre-appointment offset notifications (up to 4 offsets).
+    var id = appointmentId.hashCode.abs() % 200000;
+    for (var i = 0; i < 4; i++) {
+      final currentId = id + i;
+      await _plugin.cancel(id: currentId);
+      await _plugin.cancel(id: currentId + 50000); // grace period 1
+      await _plugin.cancel(id: currentId + 60000); // grace period 2
+    }
+    // Cancel day-of alerts (3000 offset, up to 3 slots).
+    var dayAlertId = (appointmentId.hashCode.abs() % 200000) + 3000;
+    for (var i = 0; i < 3; i++) {
+      await _plugin.cancel(id: dayAlertId + i);
+    }
+    debugPrint('🗑️ Cancelled appointment reminders for: $appointmentId');
   }
 
   // ── Appointment reminders ────────────────────────────────────────────────
@@ -526,11 +564,10 @@ class NotificationService {
       android: AndroidNotificationDetails(
         'appointment_reminders',
         'Appointment Reminders',
-        importance: Importance.max,
+        importance: Importance.high,
         priority: Priority.high,
         playSound: true,
         enableVibration: vibrate,
-        sound: const RawResourceAndroidNotificationSound('notification'),
         styleInformation: const BigTextStyleInformation(''),
       ),
       iOS: const DarwinNotificationDetails(
