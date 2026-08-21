@@ -170,6 +170,7 @@ class DrugInteractionService {
     String newMedicationName,
     String userId, {
     List<Map<String, dynamic>>? existingMedications,
+    String? editingMedicationId,
   }) async {
     final medName = newMedicationName.trim().toLowerCase();
     if (medName.isEmpty) return const ConflictResult();
@@ -198,13 +199,20 @@ class DrugInteractionService {
 
     final existingNameMap = <String, String>{};
     for (final med in activeMeds) {
+      if (editingMedicationId != null &&
+          editingMedicationId.isNotEmpty &&
+          med['medicationId'] == editingMedicationId) {
+        continue;
+      }
       final original = (med['name'] as String? ?? '').trim();
       if (original.isEmpty) continue;
+      // Exclude self medication comparison by name
+      if (original.toLowerCase() == medName) continue;
       existingNameMap[original.toLowerCase()] = original;
     }
     final existingNames = existingNameMap.keys.toSet();
 
-    final conflictMessages = <String>[];
+    final conflictMessages = <String>{};
     final conflictingMedications = <String>{};
     // Track which conflicting drug names we've already reported to avoid
     // showing the same conflict from both the API and local JSON.
@@ -257,7 +265,11 @@ class DrugInteractionService {
             final desc = interaction.description.isNotEmpty
                 ? interaction.description
                 : 'Please consult your doctor.';
-            conflictMessages.add('Conflicts with: $capitalized. $desc');
+            if (desc.toLowerCase().startsWith('conflicts with')) {
+              conflictMessages.add(desc);
+            } else {
+              conflictMessages.add('Conflicts with: $capitalized. $desc');
+            }
           }
         }
       }
@@ -283,11 +295,12 @@ class DrugInteractionService {
 
         if (hitsNew && hitsExisting) {
           final other = medName.contains(d1) ? d2 : d1;
-          if (!reportedDrugs.contains(other)) {
-            reportedDrugs.add(other);
-            final matchedName = matchingExisting.isNotEmpty
-                ? (existingNameMap[matchingExisting.first] ?? other)
-                : other;
+          final matchedName = matchingExisting.isNotEmpty
+              ? (existingNameMap[matchingExisting.first] ?? other)
+              : other;
+          final normalised = matchedName.toLowerCase();
+          if (!reportedDrugs.contains(normalised)) {
+            reportedDrugs.add(normalised);
             conflictingMedications.add(matchedName);
             conflictMessages.add(
               'Conflicts with: ${matchedName[0].toUpperCase()}${matchedName.substring(1)}.'
@@ -330,9 +343,15 @@ class DrugInteractionService {
       // Asset error — ignore.
     }
 
+    final uniqueMessages = conflictMessages
+        .map((m) => m.trim())
+        .where((m) => m.isNotEmpty)
+        .toSet()
+        .toList();
+
     return ConflictResult(
       conflictMessage:
-          conflictMessages.isNotEmpty ? conflictMessages.join('\n') : null,
+          uniqueMessages.isNotEmpty ? uniqueMessages.join('\n') : null,
       allergyMessage: allergyMessage,
       conflictingMedicationNames: conflictingMedications.toList()..sort(),
       matchedAllergies: matchedAllergies,

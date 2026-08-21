@@ -304,10 +304,62 @@ class _FirestoreLogTab extends StatelessWidget {
             return bMs.compareTo(aMs); // descending
           });
 
-        final items = sortedDocs
+        final allItems = sortedDocs
             .map(docToDisplay)
             .where(matchesSearch)
             .toList();
+
+        // Deduplicate: for the same medicationId + scheduled hour + minute,
+        // keep only the highest-priority entry.
+        // Priority (lower int = higher priority):
+        //   confirmed=0 > snoozed=1 > skipped=2 > missed=3 > pending=4
+        int statusPriority(String s) {
+          switch (s) {
+            case 'confirmed':
+            case 'taken':
+              return 0;
+            case 'snoozed':
+              return 1;
+            case 'skipped':
+              return 2;
+            case 'missed':
+              return 3;
+            default: // pending
+              return 4;
+          }
+        }
+
+        final bestItems = <String, Map<String, dynamic>>{};
+        for (final item in allItems) {
+          final medId = item['medicationId'] as String? ?? '';
+          final scheduledAt = item['scheduledAt'] as DateTime?;
+          final key = scheduledAt != null
+              ? '${medId}_${scheduledAt.hour}_${scheduledAt.minute}'
+              : medId;
+          final status = item['status'] as String? ?? 'pending';
+          if (!bestItems.containsKey(key) ||
+              statusPriority(status) <
+                  statusPriority(bestItems[key]!['status'] as String? ?? 'pending')) {
+            bestItems[key] = item;
+          }
+        }
+
+        // Restore descending scheduledTime order after dedup.
+        var items = bestItems.values.toList()
+          ..sort((a, b) {
+            final aT = a['scheduledAt'] as DateTime?;
+            final bT = b['scheduledAt'] as DateTime?;
+            if (aT == null || bT == null) return 0;
+            return bT.compareTo(aT);
+          });
+
+        if (filterStatus != null) {
+          items = items.where((item) {
+            final st = (item['status'] as String? ?? '').toLowerCase();
+            if (filterStatus == 'confirmed') return st == 'confirmed' || st == 'taken';
+            return st == filterStatus;
+          }).toList();
+        }
 
         if (items.isEmpty) {
           return EmptyListPlaceholder(

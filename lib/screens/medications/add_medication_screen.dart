@@ -1,5 +1,6 @@
 import 'package:carelanka_app/core/constants/app_colors.dart';
 import 'package:carelanka_app/core/firebase/firebase_snackbar.dart';
+import 'package:carelanka_app/services/adherence_service.dart';
 import 'package:carelanka_app/services/drug_interaction_service.dart';
 import 'package:carelanka_app/services/medication_service.dart';
 import 'package:carelanka_app/services/notification_service.dart';
@@ -68,6 +69,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
     final illnessId = args['illnessId'] as String?;
     final illnessName = args['illnessName'] as String? ?? '';
     final medication = args['medication'];
+    final medicationId = args['medicationId'] as String?;
 
     setState(() {
       _illnessId = illnessId;
@@ -79,11 +81,30 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
       return;
     }
 
+    if (medicationId != null && medicationId.isNotEmpty) {
+      _loadMedicationById(medicationId);
+      return;
+    }
+
     if (illnessId != null && illnessId.isNotEmpty) {
       _showPrescriptionDetailsSheet();
     } else {
       setState(() => _prescriptionReady = true);
     }
+  }
+
+  Future<void> _loadMedicationById(String medId) async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('medications')
+          .doc(medId)
+          .get();
+      if (snap.exists && mounted) {
+        final data = snap.data()!;
+        data['medicationId'] = medId;
+        _loadMedicationForEdit(data);
+      }
+    } catch (_) {}
   }
 
   void _loadMedicationForEdit(Map<String, dynamic> med) {
@@ -422,69 +443,6 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
     } catch (_) {}
   }
 
-  void _showConflictOverlay(String message) {
-    final overlay = Overlay.of(context);
-    late OverlayEntry entry;
-    entry = OverlayEntry(
-      builder: (_) => Positioned(
-        top: MediaQuery.of(context).padding.top + 16,
-        left: 16,
-        right: 16,
-        child: Material(
-          color: Colors.transparent,
-          child: Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFEBEE),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.errorRed, width: 1.5),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.12),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.warning_amber_rounded, color: AppColors.errorRed, size: 22),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Drug Conflict Detected',
-                        style: TextStyle(
-                          color: AppColors.errorRed,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        message,
-                        style: const TextStyle(color: Color(0xFFB71C1C), fontSize: 13, height: 1.4),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-    overlay.insert(entry);
-    Future.delayed(const Duration(seconds: 4), () {
-      try {
-        entry.remove();
-      } catch (_) {}
-    });
-  }
-
   Future<void> _checkConflicts() async {
     final medName = _name.text.trim();
     if (medName.isEmpty) {
@@ -516,6 +474,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
         medName,
         userId,
         existingMedications: activeMeds,
+        editingMedicationId: _medicationId,
       );
 
       final allergySnap = await FirebaseFirestore.instance
@@ -545,15 +504,6 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
         _conflictingMedicationNames = result.conflictingMedicationNames;
         _matchedAllergyNames = matchedAllergy.isNotEmpty ? [matchedAllergy] : [];
       });
-
-      if (result.conflictMessage != null || allergyMessage != null) {
-        _showConflictOverlay(
-          [
-            if (result.conflictMessage != null) result.conflictMessage!,
-            ?allergyMessage,
-          ].join('\n'),
-        );
-      }
     } catch (_) {
       // Never surface a crash to the user — conflicts are advisory only.
     }
@@ -562,6 +512,77 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false) || _saving) return;
 
+    final medName = _name.text.trim();
+    final hasWarning = _conflictMessage != null || _allergyMessage != null;
+
+    if (hasWarning) {
+      try {
+        final conflicting = _conflictingMedicationNames.isNotEmpty
+            ? _conflictingMedicationNames.join(', ')
+            : (_matchedAllergyNames.isNotEmpty
+                ? _matchedAllergyNames.join(', ')
+                : 'existing profile');
+        await NotificationService.instance.showDrugConflictAlert(
+          medicationName: medName,
+          conflictingWith: conflicting,
+        );
+      } catch (_) {}
+
+      if (!mounted) return;
+      final bool? proceed = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: AppColors.errorRed),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Drug Conflict Warning',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: ListBody(
+              children: [
+                Text(
+                  'The medication "$medName" conflicts with: ${_conflictingMedicationNames.isNotEmpty ? _conflictingMedicationNames.join(', ') : _matchedAllergyNames.join(', ')}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  [
+                    ?_conflictMessage,
+                    ?_allergyMessage,
+                  ].join('\n'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Check with Doctor', style: TextStyle(color: AppColors.primaryTeal, fontWeight: FontWeight.bold)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Save Anyway', style: TextStyle(color: AppColors.errorRed)),
+            ),
+          ],
+        ),
+      );
+
+      if (proceed != true) {
+        if (!mounted) return;
+        Navigator.pop(context);
+        return;
+      }
+    }
+
+    if (!mounted) return;
     final userId = context.activeScopeId;
     final medService = MedicationService();
     setState(() => _saving = true);
@@ -580,6 +601,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
       final stockCount = int.tryParse(_totalStock.text) ?? 28;
       final lowStock = int.tryParse(_lowStockDays.text) ?? 3;
 
+      String savedMedId = _medicationId ?? '';
       if (_isEdit && _medicationId != null) {
         await medService.updateMedication(
           medicationId: _medicationId!,
@@ -600,17 +622,29 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
               ?_conflictMessage,
               ?_allergyMessage,
             ].join('\n');
-            await FirebaseFirestore.instance.collection('alerts').add({
-              'userId': userId,
-              'type': 'drug',
-              'message': message,
-              'newMedicationName': _name.text.trim(),
-              'newMedicationDosage': _dose.text.trim(),
-              'conflictingMedicationNames': _conflictingMedicationNames,
-              'matchedAllergies': _matchedAllergyNames,
-              'read': false,
-              'createdAt': Timestamp.fromDate(DateTime.now()),
-            });
+            final medicationName = _name.text.trim();
+            final existing = await FirebaseFirestore.instance
+                .collection('alerts')
+                .where('userId', isEqualTo: userId)
+                .where('type', isEqualTo: 'drug')
+                .where('newMedicationName', isEqualTo: medicationName)
+                .where('createdAt', isGreaterThan: Timestamp.fromDate(
+                    DateTime.now().subtract(const Duration(hours: 24))))
+                .limit(1)
+                .get();
+            if (existing.docs.isEmpty) {
+              await FirebaseFirestore.instance.collection('alerts').add({
+                'userId': userId,
+                'type': 'drug',
+                'message': message,
+                'newMedicationName': medicationName,
+                'newMedicationDosage': _dose.text.trim(),
+                'conflictingMedicationNames': _conflictingMedicationNames,
+                'matchedAllergies': _matchedAllergyNames,
+                'read': false,
+                'createdAt': Timestamp.fromDate(DateTime.now()),
+              });
+            }
           } catch (_) {}
         }
       } else {
@@ -628,23 +662,36 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
           lowStockThreshold: _stockReminderOn ? lowStock : 0,
           hasConflictWarning: _conflictMessage != null || _allergyMessage != null,
         );
+        savedMedId = medicationId;
         if (_conflictMessage != null || _allergyMessage != null) {
           try {
             final message = [
               ?_conflictMessage,
               ?_allergyMessage,
             ].join('\n');
-            await FirebaseFirestore.instance.collection('alerts').add({
-              'userId': userId,
-              'type': 'drug',
-              'message': message,
-              'newMedicationName': _name.text.trim(),
-              'newMedicationDosage': _dose.text.trim(),
-              'conflictingMedicationNames': _conflictingMedicationNames,
-              'matchedAllergies': _matchedAllergyNames,
-              'read': false,
-              'createdAt': Timestamp.fromDate(DateTime.now()),
-            });
+            final medicationName = _name.text.trim();
+            final existing = await FirebaseFirestore.instance
+                .collection('alerts')
+                .where('userId', isEqualTo: userId)
+                .where('type', isEqualTo: 'drug')
+                .where('newMedicationName', isEqualTo: medicationName)
+                .where('createdAt', isGreaterThan: Timestamp.fromDate(
+                    DateTime.now().subtract(const Duration(hours: 24))))
+                .limit(1)
+                .get();
+            if (existing.docs.isEmpty) {
+              await FirebaseFirestore.instance.collection('alerts').add({
+                'userId': userId,
+                'type': 'drug',
+                'message': message,
+                'newMedicationName': medicationName,
+                'newMedicationDosage': _dose.text.trim(),
+                'conflictingMedicationNames': _conflictingMedicationNames,
+                'matchedAllergies': _matchedAllergyNames,
+                'read': false,
+                'createdAt': Timestamp.fromDate(DateTime.now()),
+              });
+            }
           } catch (_) {}
         }
         try {
@@ -660,6 +707,12 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
           );
         } catch (_) {}
       }
+
+      try {
+        if (savedMedId.isNotEmpty) {
+          await AdherenceService().checkAndAlertLowStock(savedMedId, userId);
+        }
+      } catch (_) {}
 
       if (!mounted) return;
       await showCareLankaSuccessNotification(

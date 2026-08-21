@@ -3,8 +3,15 @@ import 'package:intl/intl.dart';
 class MedicationScheduleHelper {
   static DateTime? parseTimeOnDay(String timeStr, DateTime day) {
     try {
-      final parsed = DateFormat('h:mm a').parse(timeStr.trim());
-      return DateTime(day.year, day.month, day.day, parsed.hour, parsed.minute);
+      final match = RegExp(r'(\d{1,2}):(\d{2})\s*(AM|PM)?', caseSensitive: false)
+          .firstMatch(timeStr.trim());
+      if (match == null) return null;
+      var hour = int.parse(match.group(1)!);
+      final minute = int.parse(match.group(2)!);
+      final ampm = match.group(3)?.toUpperCase();
+      if (ampm == 'PM' && hour < 12) hour += 12;
+      if (ampm == 'AM' && hour == 12) hour = 0;
+      return DateTime(day.year, day.month, day.day, hour, minute);
     } catch (_) {
       return null;
     }

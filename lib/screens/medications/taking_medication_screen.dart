@@ -3,6 +3,7 @@ import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/utils/active_uid.dart';
 import 'package:carelanka_app/models/daily_dose_item.dart';
 import 'package:carelanka_app/services/reminder_service.dart';
+import 'package:carelanka_app/services/notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -49,9 +50,11 @@ class TakingMedicationScreen extends StatelessWidget {
             child: Column(
               children: [
                 const SizedBox(height: 24),
-                const Text(
-                  'TIME FOR MEDICATION',
-                  style: TextStyle(
+                Text(
+                  dose.patientName != null && dose.patientName!.isNotEmpty
+                      ? 'TIME FOR MEDICATION — ${dose.patientName!.toUpperCase()}'
+                      : 'TIME FOR MEDICATION',
+                  style: const TextStyle(
                     color: Colors.white70,
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
@@ -158,7 +161,7 @@ class TakingMedicationScreen extends StatelessWidget {
   }
 
   Future<void> _takeNow(BuildContext context, DailyDoseItem dose) async {
-    final userId = context.activeScopeId;
+    final userId = dose.userId ?? context.activeScopeId;
     final now = DateTime.now();
     final latency = now.difference(dose.scheduledAt).inMinutes.clamp(0, 999);
     await ReminderService().logDose(
@@ -184,7 +187,7 @@ class TakingMedicationScreen extends StatelessWidget {
   }
 
   Future<void> _snooze(BuildContext context, DailyDoseItem dose) async {
-    final userId = context.activeScopeId;
+    final userId = dose.userId ?? context.activeScopeId;
     final snoozeUntil = DateTime.now().add(const Duration(minutes: 15));
     await ReminderService().logDose(
       userId: userId,
@@ -204,12 +207,18 @@ class TakingMedicationScreen extends StatelessWidget {
         'name': dose.medicationName,
         'remindAt': DateFormat.jm().format(snoozeUntil),
         'snoozeUntil': snoozeUntil,
+        'medicationId': dose.medicationId,
+        'medicationName': dose.medicationName,
+        'condition': dose.condition,
+        'scheduledTime': dose.scheduledAt,
+        'dosage': dose.dosage,
+        'logId': dose.logId,
       },
     );
   }
 
   Future<void> _skip(BuildContext context, DailyDoseItem dose) async {
-    final userId = context.activeScopeId;
+    final userId = dose.userId ?? context.activeScopeId;
     await ReminderService().logDose(
       userId: userId,
       medicationId: dose.medicationId,
@@ -219,6 +228,17 @@ class TakingMedicationScreen extends StatelessWidget {
       status: 'skipped',
       existingLogId: dose.logId,
     );
-    if (context.mounted) Navigator.pop(context);
+    try {
+      await NotificationService.instance.cancelMedicationReminders(dose.medicationId);
+    } catch (_) {}
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Dose skipped'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      Navigator.pop(context);
+    }
   }
 }

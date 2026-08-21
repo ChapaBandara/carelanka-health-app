@@ -151,7 +151,12 @@ class _DrugConflictDetailScreenState extends State<DrugConflictDetailScreen> {
     if (message.trim().isEmpty) {
       return 'These medications may interact. Please consult your doctor before taking them together.';
     }
-    final lines = message.split('\n').where((l) => l.trim().isNotEmpty).toList();
+    final lines = message
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toSet()
+        .toList();
     if (lines.length == 1) return lines.first;
     return lines.join('\n\n');
   }

@@ -86,6 +86,73 @@ class AdherenceService {
     }
   }
 
+  /// Real-time stream version of [calculateOverallScore].
+  ///
+  /// Deduplicates reminder_log documents by medicationId + scheduledHour +
+  /// scheduledMinute within the 7-day window before computing the score, so
+  /// duplicate logs for the same dose do not inflate the total count.
+  Stream<AdherenceResult> watchOverallScore(String userId) {
+    final since = DateTime.now().subtract(const Duration(days: 7));
+    return _col
+        .where('userId', isEqualTo: userId)
+        .where('scheduledTime',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(since))
+        .snapshots()
+        .map((snap) {
+      try {
+        // Dedup: keep the highest-priority status per unique dose slot.
+        // Priority: confirmed=0 > snoozed=1 > skipped=2 > missed=3 > pending=4
+        int priority(String s) {
+          switch (s) {
+            case 'confirmed':
+            case 'taken':
+              return 0;
+            case 'snoozed':
+              return 1;
+            case 'skipped':
+              return 2;
+            case 'missed':
+              return 3;
+            default:
+              return 4;
+          }
+        }
+
+        final best = <String, String>{};
+        for (final doc in snap.docs) {
+          final d = doc.data();
+          final medId = d['medicationId'] as String? ?? '';
+          final scheduled = d['scheduledTime'];
+          if (scheduled is! Timestamp) continue;
+          final dt = scheduled.toDate();
+          final key = '${medId}_${dt.hour}_${dt.minute}';
+          final status = (d['status'] as String? ?? 'pending').toLowerCase();
+          if (!best.containsKey(key) ||
+              priority(status) < priority(best[key]!)) {
+            best[key] = status;
+          }
+        }
+
+        if (best.isEmpty) {
+          return const AdherenceResult(score: 100.0, confirmed: 0, total: 0);
+        }
+
+        final total = best.length;
+        final confirmed = best.values.where((s) {
+          return s == 'confirmed' || s == 'taken';
+        }).length;
+
+        return AdherenceResult(
+          score: (confirmed / total) * 100,
+          confirmed: confirmed,
+          total: total,
+        );
+      } catch (_) {
+        return const AdherenceResult(score: 100.0, confirmed: 0, total: 0);
+      }
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Average response delay
   // ---------------------------------------------------------------------------
@@ -155,14 +222,16 @@ class AdherenceService {
 
   /// Returns true when the remaining stock days fall at or below [threshold].
   bool isStockLow(int stockCount, int frequency, int threshold) {
+    if (threshold <= 0) return false;
     return calculateStockDaysRemaining(stockCount, frequency) <= threshold;
   }
+
   // ---------------------------------------------------------------------------
   // Low-stock warning system
   // ---------------------------------------------------------------------------
 
   /// Decrements [medicationId]'s stockCount by 1 and triggers a low-stock
-  /// check. Does nothing if the current stock is already 0.
+  /// check. Clamps stock at 0.
   Future<void> decrementStock(String medicationId, String userId) async {
     try {
       final ref = _firestore
@@ -172,8 +241,7 @@ class AdherenceService {
       if (!snap.exists) return;
 
       final currentStock = snap.data()?['stockCount'] as int? ?? 0;
-      final newStock = currentStock - 1;
-      if (newStock < 0) return;
+      final newStock = (currentStock - 1).clamp(0, 999999);
 
       await ref.update({'stockCount': newStock});
       await checkAndAlertLowStock(medicationId, userId);
@@ -194,44 +262,55 @@ class AdherenceService {
 
       final data = medSnap.data()!;
       final stockCount = data['stockCount'] as int? ?? 0;
-      final frequencyStr = data['frequency'] as String? ?? 'Once daily';
       final threshold = data['lowStockThreshold'] as int? ?? 0;
       final name = data['name'] as String? ?? data['title'] as String? ?? 'Medication';
+      final illnessId = data['illnessId'] as String? ?? '';
 
-      // threshold == 0 means the user disabled stock reminders.
-      if (threshold == 0) return;
+      // threshold <= 0 means the user disabled stock reminders.
+      if (threshold <= 0) return;
 
-      final frequency = _doseCountForFrequency(frequencyStr);
-      final daysRemaining = calculateStockDaysRemaining(stockCount, frequency);
+      final scheduledTimes = List<String>.from(data['scheduledTimes'] as List? ?? []);
+      final frequency = data['frequency'] as String? ?? '';
+      final dosesPerDay = scheduledTimes.isNotEmpty
+          ? scheduledTimes.length
+          : _parseFrequencyCount(frequency);
+
+      final daysRemaining = stockCount / dosesPerDay;
 
       if (daysRemaining > threshold) return;
 
       // Deduplicate: only create one low-stock alert per medication per 7 days.
       final sevenDaysAgo = DateTime.now().subtract(const Duration(days: 7));
       try {
-        final alertsSnap = await _firestore
+        final existingSnap = await _firestore
             .collection(FirebaseCollections.alerts)
             .where('userId', isEqualTo: userId)
-            .where('type', isEqualTo: 'general')
-            .where('createdAt',
-                isGreaterThanOrEqualTo: Timestamp.fromDate(sevenDaysAgo))
+            .where('medicationId', isEqualTo: medicationId)
             .get();
 
-        final alreadyAlerted = alertsSnap.docs.any((doc) {
-          final msg = doc.data()['message'] as String? ?? '';
-          return msg.contains(name) && msg.contains('running low');
+        final alreadyAlerted = existingSnap.docs.any((doc) {
+          final d = doc.data();
+          if (d['type'] != 'low_stock') return false;
+          final created = d['createdAt'] as Timestamp?;
+          if (created == null) return false;
+          return created.toDate().isAfter(sevenDaysAgo);
         });
+
         if (alreadyAlerted) return;
       } catch (_) {}
 
       // Create Firestore alert.
       final now = DateTime.now();
-      final message = '$name is running low. $daysRemaining day${daysRemaining == 1 ? '' : 's'} '
+      final daysRemainingInt = daysRemaining.floor();
+      final message = '$name is running low. $daysRemainingInt day${daysRemainingInt == 1 ? '' : 's'} '
           'of supply remaining. Visit your doctor for a renewal prescription.';
       try {
         await _firestore.collection(FirebaseCollections.alerts).add({
           'userId': userId,
-          'type': 'general',
+          'type': 'low_stock',
+          'medicationId': medicationId,
+          'medicationName': name,
+          'illnessId': illnessId,
           'message': message,
           'read': false,
           'createdAt': Timestamp.fromDate(now),
@@ -242,10 +321,18 @@ class AdherenceService {
       try {
         await NotificationService.instance.showLowStockNotification(
           title: 'Medication Running Low',
-          body: '$name — $daysRemaining day${daysRemaining == 1 ? '' : 's'} remaining',
+          body: '$name — $daysRemainingInt day${daysRemainingInt == 1 ? '' : 's'} remaining',
         );
       } catch (_) {}
     } catch (_) {}
+  }
+
+  int _parseFrequencyCount(String frequency) {
+    final f = frequency.toLowerCase();
+    if (f.contains('once') || f.contains('1')) return 1;
+    if (f.contains('three') || f.contains('3')) return 3;
+    if (f.contains('four') || f.contains('4')) return 4;
+    return 2;
   }
 
   /// Checks stock levels for all active medications belonging to [userId]
@@ -270,20 +357,7 @@ class AdherenceService {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  /// Converts a frequency label (as stored in Firestore) to a numeric
-  /// doses-per-day count, mirroring the logic in AddMedicationScreen.
-  int _doseCountForFrequency(String frequency) {
-    switch (frequency) {
-      case 'Once daily':
-        return 1;
-      case 'Three times daily':
-        return 3;
-      case 'Four times daily':
-        return 4;
-      default:
-        return 2; // 'Twice daily' and any unknown value
-    }
-  }
+
 }
 
 // ---------------------------------------------------------------------------

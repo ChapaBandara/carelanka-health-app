@@ -13,11 +13,18 @@ class AlertService {
   Stream<List<Map<String, String>>> watchAlertMaps(String userId) {
     return _col
         .where('userId', isEqualTo: userId)
-        .orderBy('createdAt', descending: true)
         .snapshots()
-        .map(
-          (snap) => snap.docs.map(_toUiMap).toList(),
-        );
+        .map((snap) {
+          final unreadDocs =
+              snap.docs.where((d) => d.data()['read'] != true).toList();
+          unreadDocs.sort((a, b) {
+            final aTime = a.data()['createdAt'] as Timestamp?;
+            final bTime = b.data()['createdAt'] as Timestamp?;
+            if (aTime == null || bTime == null) return 0;
+            return bTime.compareTo(aTime);
+          });
+          return unreadDocs.map(_toUiMap).toList();
+        });
   }
 
   Map<String, String> _toUiMap(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
@@ -28,6 +35,15 @@ class AlertService {
     if (created is Timestamp) {
       time = DateFormat('MMM d \'at\' h:mm a').format(created.toDate());
     }
+
+    final rawMsg = d['message'] as String? ?? '';
+    final lines = rawMsg
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toSet()
+        .toList();
+    final cleanMsg = lines.join('\n');
 
     String category;
     String accent;
@@ -44,6 +60,7 @@ class AlertService {
         tint = 'red';
         break;
       case 'missed':
+      case 'missed_dose':
         category = 'MISSED DOSE';
         accent = 'orange';
         tint = 'orange';
@@ -51,6 +68,11 @@ class AlertService {
       case 'checkup':
         category = 'CHECKUP';
         accent = 'teal';
+        tint = 'white';
+        break;
+      case 'low_stock':
+        category = 'LOW STOCK';
+        accent = 'purple';
         tint = 'white';
         break;
       default:
@@ -63,7 +85,10 @@ class AlertService {
       'alertId': doc.id,
       'type': type,
       'category': category,
-      'title': d['message'] as String? ?? '',
+      'title': cleanMsg,
+      'medicationId': d['medicationId'] as String? ?? '',
+      'medicationName': d['medicationName'] as String? ?? '',
+      'illnessId': d['illnessId'] as String? ?? '',
       'newMedicationName': d['newMedicationName'] as String? ?? '',
       'newMedicationDosage': d['newMedicationDosage'] as String? ?? '',
       'conflictingMedicationNames': (d['conflictingMedicationNames'] as List?)

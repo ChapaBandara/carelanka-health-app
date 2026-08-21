@@ -12,6 +12,8 @@ class DailyDoseItem {
     this.latencyMinutes,
     this.logId,
     this.snoozeUntil,
+    this.userId,
+    this.patientName,
   });
 
   final String medicationId;
@@ -26,6 +28,8 @@ class DailyDoseItem {
   final int? latencyMinutes;
   final String? logId;
   final DateTime? snoozeUntil;
+  final String? userId;
+  final String? patientName;
 
   String get displayDosage {
     if (dosage.isEmpty) return '';

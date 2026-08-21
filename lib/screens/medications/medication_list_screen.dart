@@ -47,7 +47,7 @@ class _MedicationListScreenState extends State<MedicationListScreen>
   @override
   Widget build(BuildContext context) {
     return Consumer<FamilyProvider>(
-      builder: (context, _, __) {
+      builder: (context, _, _) {
         final userId = context.activeScopeId;
         final isActiveTab = _tab.index == 0;
 

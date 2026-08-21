@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/core/utils/active_uid.dart';
 import 'package:carelanka_app/models/daily_dose_item.dart';
+import 'package:carelanka_app/providers/family_provider.dart';
 import 'package:carelanka_app/screens/family/family_screen.dart';
 import 'package:carelanka_app/screens/home/dashboard_screen.dart';
 import 'package:carelanka_app/screens/profile/profile_screen.dart';
@@ -11,7 +12,10 @@ import 'package:carelanka_app/services/notification_service.dart';
 import 'package:carelanka_app/widgets/carelanka/carelanka_bottom_nav.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 /// CareLanka shell: Home, Family, Profile (matches UI folder bottom navigation).
 class MainShell extends StatefulWidget {
@@ -29,6 +33,7 @@ class _MainShellState extends State<MainShell> {
   Timer? _reminderTimer;
   bool _reminderDialogOpen = false;
   final Set<String> _shownThisSession = {};
+  final Set<String> _shownAppointmentsThisSession = {};
 
   @override
   void initState() {
@@ -39,9 +44,14 @@ class _MainShellState extends State<MainShell> {
     // Start polling for due medication reminders every 30 seconds.
     _reminderTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       _checkDueReminders();
+      _checkAppointmentReminders();
     });
     // Also run once immediately after the first frame.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkDueReminders());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkDueReminders();
+      _checkDayBeforeAppointments();
+      _checkAppointmentReminders();
+    });
   }
 
   @override
@@ -60,7 +70,7 @@ class _MainShellState extends State<MainShell> {
 
   Future<void> _checkDueReminders() async {
     if (!mounted || _reminderDialogOpen) return;
-    debugPrint('🕐 _checkDueReminders called at ${DateTime.now()}');
+    if (kDebugMode) debugPrint('🕐 _checkDueReminders called at ${DateTime.now()}');
     final uid = context.activeScopeId;
     if (uid.isEmpty) return;
 
@@ -72,7 +82,7 @@ class _MainShellState extends State<MainShell> {
         .where('userId', isEqualTo: uid)
         .where('active', isEqualTo: true)
         .get();
-    debugPrint('💊 Found ${medSnap.docs.length} active medications to check');
+    if (kDebugMode) debugPrint('💊 Found ${medSnap.docs.length} active medications to check');
 
     for (final doc in medSnap.docs) {
       if (!mounted || _reminderDialogOpen) return;
@@ -103,7 +113,7 @@ class _MainShellState extends State<MainShell> {
         );
 
         final diff = now.difference(scheduledTime).inMinutes;
-        debugPrint('⏰ Checking $timeStr → scheduled: $scheduledTime, diff: $diff min');
+        if (kDebugMode) debugPrint('⏰ Checking $timeStr → scheduled: $scheduledTime, diff: $diff min');
         // Trigger only within the window [0, 5] minutes after the due time.
         if (diff < 0 || diff > 5) continue;
 
@@ -131,7 +141,7 @@ class _MainShellState extends State<MainShell> {
               .limit(1)
               .get();
         } catch (e) {
-          debugPrint('❌ Index query failed: $e');
+          if (kDebugMode) debugPrint('❌ Index query failed: $e');
           existingSnap = await FirebaseFirestore.instance
               .collection('reminder_logs')
               .where('userId', isEqualTo: uid)
@@ -158,13 +168,13 @@ class _MainShellState extends State<MainShell> {
         }
         final existing = existingSnap;
 
-        debugPrint('🔍 Existing log check: found ${existing.docs.length} docs for $sessionKey');
+        if (kDebugMode) debugPrint('🔍 Existing log check: found ${existing.docs.length} docs for $sessionKey');
         if (existing.docs.isNotEmpty) {
           _shownThisSession.add(sessionKey);
           continue;
         }
 
-        debugPrint('🚨 SHOWING REMINDER for $sessionKey at ${DateTime.now()}');
+        if (kDebugMode) debugPrint('🚨 SHOWING REMINDER for $sessionKey at ${DateTime.now()}');
         _shownThisSession.add(sessionKey);
         _reminderDialogOpen = true;
 
@@ -190,15 +200,29 @@ class _MainShellState extends State<MainShell> {
           return;
         }
 
+        final ownUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+        final familyProvider = Provider.of<FamilyProvider>(context, listen: false);
+        final profileName = familyProvider.activeDisplayName;
+        final patientName = uid != ownUid ? profileName : '';
+
+        // When reminding a caretaker about a dependent's medication, prefix
+        // the condition with "For: <name>" so the screen clearly shows whose
+        // dose it is.
+        final displayCondition = profileName != 'My Account'
+            ? 'For: $profileName${condition.isNotEmpty ? ' — $condition' : ''}'
+            : condition;
+
         final dose = DailyDoseItem(
           medicationId: doc.id,
           medicationName: data['name'] as String? ?? 'Medication',
           dosage: data['dosage'] as String? ?? '',
-          condition: condition,
+          condition: displayCondition,
           scheduledLabel: timeStr,
           scheduledAt: scheduledTime,
           status: 'upcoming',
           mealTiming: data['mealTiming'] as String? ?? '',
+          userId: uid,
+          patientName: patientName,
         );
 
         // Play sound for in-app reminder
@@ -213,12 +237,190 @@ class _MainShellState extends State<MainShell> {
           AppRoutes.takingMedication,
           arguments: dose,
         );
-        debugPrint('✅ REMINDER SCREEN DISMISSED for $sessionKey');
+        if (kDebugMode) debugPrint('✅ REMINDER SCREEN DISMISSED for $sessionKey');
 
         _reminderDialogOpen = false;
         return; // Show at most one reminder per check cycle.
       }
     }
+
+    // Appointment reminder check loop
+    try {
+      final apptSnap = await FirebaseFirestore.instance
+          .collection('appointments')
+          .where('userId', isEqualTo: uid)
+          .get();
+
+      for (final doc in apptSnap.docs) {
+        final data = doc.data();
+        final dtField = data['dateTime'];
+        if (dtField is! Timestamp) continue;
+
+        final apptTime = dtField.toDate();
+        final today = DateTime(now.year, now.month, now.day);
+        final apptDay = DateTime(apptTime.year, apptTime.month, apptTime.day);
+        final diffDays = apptDay.difference(today).inDays;
+        if (diffDays != 0 && diffDays != 1) continue;
+
+        final offsets = [120, 60, 30];
+        for (final offset in offsets) {
+          final scheduledReminderTime = apptTime.subtract(Duration(minutes: offset));
+          final diffMinutes = now.difference(scheduledReminderTime).inMinutes;
+
+          if (diffMinutes < 0 || diffMinutes > 5) continue;
+
+          final sessionKey = '${doc.id}_${offset}_${today.toIso8601String()}';
+          if (_shownAppointmentsThisSession.contains(sessionKey)) continue;
+
+          _shownAppointmentsThisSession.add(sessionKey);
+
+          final doctor = data['doctorName'] as String? ?? 'Doctor';
+          final venue = data['hospital'] as String? ?? 'Venue';
+          final apptNotificationId = 900000 + (doc.id.hashCode.abs() % 100000) + offset;
+
+          try {
+            await NotificationService.instance.showImmediateAppointmentReminder(
+              id: apptNotificationId,
+              doctorName: doctor,
+              venue: venue,
+              minutesRemaining: offset,
+            );
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _checkAppointmentReminders() async {
+    if (!mounted) return;
+    final uid = context.activeScopeId;
+    if (uid.isEmpty) return;
+    final now = DateTime.now();
+
+    final snap = await FirebaseFirestore.instance
+        .collection('appointments')
+        .where('userId', isEqualTo: uid)
+        .where('status', isNotEqualTo: 'completed')
+        .get();
+
+    for (final doc in snap.docs) {
+      if (!mounted) return;
+      final data = doc.data();
+      final appointmentId = doc.id;
+
+      final dateRaw = data['date'];
+      final timeRaw = data['time'];
+      if (dateRaw == null || timeRaw == null) continue;
+
+      DateTime appointmentDateTime;
+      try {
+        final date = (dateRaw as Timestamp).toDate();
+        final timeStr = timeRaw.toString().trim();
+        final match = RegExp(
+          r'(\d{1,2}):(\d{2})\s*(AM|PM)?',
+          caseSensitive: false,
+        ).firstMatch(timeStr);
+        if (match == null) continue;
+        var hour = int.parse(match.group(1)!);
+        final minute = int.parse(match.group(2)!);
+        final ampm = match.group(3)?.toUpperCase();
+        if (ampm == 'PM' && hour < 12) hour += 12;
+        if (ampm == 'AM' && hour == 12) hour = 0;
+        appointmentDateTime = DateTime(
+            date.year, date.month, date.day, hour, minute);
+      } catch (_) {
+        continue;
+      }
+
+      // Check 2hr, 1hr, 30min before reminders
+      for (final offsetMinutes in [120, 60, 30]) {
+        final reminderTime = appointmentDateTime
+            .subtract(Duration(minutes: offsetMinutes));
+        final diff = now.difference(reminderTime).inMinutes;
+        if (diff < 0 || diff > 5) continue;
+
+        final sessionKey = '${appointmentId}_${offsetMinutes}mins';
+        if (_shownAppointmentsThisSession.contains(sessionKey)) continue;
+
+        _shownAppointmentsThisSession.add(sessionKey);
+
+        final doctorName = data['doctorName'] as String? ?? 'Doctor';
+        final venue = data['venue'] as String? ?? 'Hospital';
+        final offsetText = offsetMinutes == 120
+            ? '2 hours'
+            : offsetMinutes == 60
+                ? '1 hour'
+                : '30 minutes';
+
+        await NotificationService.instance.showAppointmentReminder(
+          doctorName: doctorName,
+          venue: venue,
+          timeUntil: offsetText,
+        );
+        return;
+      }
+
+      // Day before reminder
+      final tomorrow = DateTime(now.year, now.month, now.day)
+          .add(const Duration(days: 1));
+      final apptDay = DateTime(appointmentDateTime.year,
+          appointmentDateTime.month, appointmentDateTime.day);
+
+      if (apptDay == tomorrow) {
+        final sessionKey = '${appointmentId}_day_before';
+        if (_shownAppointmentsThisSession.contains(sessionKey)) continue;
+        _shownAppointmentsThisSession.add(sessionKey);
+
+        await NotificationService.instance.showAppointmentReminder(
+          doctorName: data['doctorName'] as String? ?? 'Doctor',
+          venue: data['venue'] as String? ?? 'Hospital',
+          timeUntil: 'tomorrow',
+        );
+      }
+    }
+  }
+
+  Future<void> _checkDayBeforeAppointments() async {
+    if (!mounted) return;
+    final uid = context.activeScopeId;
+    if (uid.isEmpty) return;
+
+    try {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+
+      final apptSnap = await FirebaseFirestore.instance
+          .collection('appointments')
+          .where('userId', isEqualTo: uid)
+          .get();
+
+      for (final doc in apptSnap.docs) {
+        final data = doc.data();
+        final dtField = data['dateTime'];
+        if (dtField is! Timestamp) continue;
+
+        final apptTime = dtField.toDate();
+        final apptDay = DateTime(apptTime.year, apptTime.month, apptTime.day);
+        final diffDays = apptDay.difference(today).inDays;
+
+        // If apptDay is tomorrow, then today is the day before the appointment!
+        if (diffDays == 1) {
+          final doctor = data['doctorName'] as String? ?? 'Doctor';
+          final venue = data['hospital'] as String? ?? 'Venue';
+          final timeStr = DateFormat.jm().format(apptTime);
+          final apptNotificationId = 800000 + (doc.id.hashCode.abs() % 100000);
+
+          try {
+            await NotificationService.instance.showDayBeforeAppointmentNotification(
+              id: apptNotificationId,
+              doctorName: doctor,
+              venue: venue,
+              timeString: timeStr,
+            );
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
   }
 
   /// Parses a time string such as "8:30 AM", "14:00", or "2:00 pm".

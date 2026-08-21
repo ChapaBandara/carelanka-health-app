@@ -269,6 +269,9 @@ class ReminderService {
       final now = DateTime.now();
       final start = DateTime(now.year, now.month, now.day);
       final end = start.add(const Duration(days: 1));
+      // Deduplicate by medicationId + scheduledHour + scheduledMinute so that
+      // multiple reminder_log documents for the same dose are only counted once.
+      final seenKeys = <String>{};
       var count = 0;
       for (final doc in snap.docs) {
         final d = doc.data();
@@ -277,7 +280,12 @@ class ReminderService {
         final scheduled = d['scheduledTime'];
         if (scheduled is! Timestamp) continue;
         final dt = scheduled.toDate();
-        if (!dt.isBefore(start) && dt.isBefore(end)) count++;
+        if (dt.isBefore(start) || !dt.isBefore(end)) continue;
+        final medId = d['medicationId'] as String? ?? '';
+        final key = '${medId}_${dt.hour}_${dt.minute}';
+        if (seenKeys.contains(key)) continue;
+        seenKeys.add(key);
+        count++;
       }
       return count;
     });
@@ -387,6 +395,8 @@ class ReminderService {
       if (status != 'completed') activeIllnessIds.add(doc.id);
     }
 
+    if (kDebugMode) debugPrint('Active illness IDs: $activeIllnessIds');
+
     final logsByKey = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
     for (final doc in logSnap.docs) {
       final d = doc.data();
@@ -404,7 +414,18 @@ class ReminderService {
       final med = doc.data();
       if (med['active'] != true) continue;
       final illnessId = med['illnessId'] as String? ?? '';
-      if (!activeIllnessIds.contains(illnessId)) continue;
+
+      // Allow medications with no associated illness (illnessId is empty).
+      // Skip only medications explicitly linked to a COMPLETED illness.
+      final included = illnessId.isEmpty || activeIllnessIds.contains(illnessId);
+      if (kDebugMode) {
+        debugPrint(
+          'Medication ${med['name']} illnessId: "$illnessId" '
+          'included: $included',
+        );
+      }
+      if (!included) continue;
+
 
       final medId = doc.id;
       final name = med['name'] as String? ?? 'Medication';
@@ -494,7 +515,42 @@ class ReminderService {
     if (existingLogId != null && existingLogId.isNotEmpty) {
       await _col.doc(existingLogId).set(payload, SetOptions(merge: true));
     } else {
-      await _col.add(payload);
+      try {
+        final todayStart = DateTime(scheduledTime.year, scheduledTime.month, scheduledTime.day);
+        final todayEnd = todayStart.add(const Duration(days: 1));
+        final snap = await _col
+            .where('userId', isEqualTo: userId)
+            .where('medicationId', isEqualTo: medicationId)
+            .get();
+        final matches = snap.docs.where((doc) {
+          final d = doc.data();
+          final st = d['scheduledTime'];
+          if (st is! Timestamp) return false;
+          final dt = st.toDate();
+          return dt.hour == scheduledTime.hour &&
+              dt.minute == scheduledTime.minute &&
+              dt.isAfter(todayStart) &&
+              dt.isBefore(todayEnd);
+        }).toList();
+
+        if (matches.isNotEmpty) {
+          await _col.doc(matches.first.id).set(payload, SetOptions(merge: true));
+        } else {
+          await _col.add(payload);
+        }
+      } catch (_) {
+        await _col.add(payload);
+      }
+    }
+
+    final lowerStatus = status.toLowerCase();
+    if (lowerStatus == 'confirmed' || lowerStatus == 'taken') {
+      try {
+        await AdherenceService().decrementStock(medicationId, userId);
+      } catch (_) {}
+      try {
+        await NotificationService.instance.cancelSnooze(medicationId);
+      } catch (_) {}
     }
   }
 
@@ -524,7 +580,6 @@ class ReminderService {
     final todayEnd = Timestamp.fromDate(DateTime(now.year, now.month, now.day, 23, 59, 59));
     return _col
         .where('userId', isEqualTo: userId)
-        .where('status', isEqualTo: status)
         .where('scheduledTime', isGreaterThanOrEqualTo: todayStart)
         .where('scheduledTime', isLessThanOrEqualTo: todayEnd)
         .snapshots();
@@ -848,6 +903,12 @@ class ReminderService {
         'status': status,
         'createdAt': Timestamp.fromDate(DateTime.now()),
       });
+      final lowerStatus = status.toLowerCase();
+      if (lowerStatus == 'confirmed' || lowerStatus == 'taken') {
+        try {
+          await AdherenceService().decrementStock(medicationId, userId);
+        } catch (_) {}
+      }
     } catch (_) {}
   }
 
@@ -1201,8 +1262,9 @@ class ReminderService {
                 displayTime,
               );
 
-              debugPrint(
-                  'Auto-logged missed dose: $medicationName at $timeStr');
+              if (kDebugMode) {
+                debugPrint('Auto-logged missed dose: $medicationName at $timeStr');
+              }
             } catch (_) {
               continue;
             }
@@ -1212,7 +1274,7 @@ class ReminderService {
         }
       }
     } catch (e) {
-      debugPrint('Error auto-logging missed doses: $e');
+      if (kDebugMode) debugPrint('Error auto-logging missed doses: $e');
     }
   }
 }

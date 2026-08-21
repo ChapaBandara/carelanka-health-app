@@ -180,15 +180,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     var taken = 0;
     var missed = 0;
     var pending = 0;
-    var totalScheduled = 0;
     final medMap = <String, Map<String, int>>{};
-    final medScheduledCount = <String, int>{};
-    final medLoggedCount = <String, int>{};
-
-    for (final log in filteredLogs) {
-      final medId = log['medicationId'] as String? ?? '';
-      medLoggedCount[medId] = (medLoggedCount[medId] ?? 0) + 1;
-    }
 
     final startDay =
         DateTime(periodStart.year, periodStart.month, periodStart.day);
@@ -214,9 +206,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
             continue;
           }
 
-          totalScheduled++;
-          medScheduledCount[medId] = (medScheduledCount[medId] ?? 0) + 1;
-
           final log = _findLogForSchedule(filteredLogs, medId, scheduledAt);
           var status = 'upcoming';
           if (log != null) {
@@ -241,25 +230,51 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
 
     if (!isDaily) {
-      missed = filteredLogs
-          .where((l) => (l['status'] as String? ?? '').toLowerCase() == 'missed')
-          .length;
-      pending = (totalScheduled - filteredLogs.length).clamp(0, totalScheduled);
+      int confirmedCount = 0;
+      int missedCount = 0;
+      int skippedCount = 0;
+
+      for (final log in filteredLogs) {
+        final status = (log['status'] as String? ?? '').toLowerCase();
+        if (status == 'confirmed' || status == 'taken') {
+          confirmedCount++;
+        } else if (status == 'missed') {
+          missedCount++;
+        } else if (status == 'skipped') {
+          skippedCount++;
+        }
+      }
+
+      taken = confirmedCount;
+      missed = missedCount + skippedCount;
+      pending = 0;
 
       for (final medId in activeMedIds) {
         final med = medDocs[medId];
         if (med == null) continue;
         final name = med['name'] as String? ?? 'Medication';
-        final medMissed = filteredLogs
-            .where((l) =>
-                (l['medicationId'] as String? ?? '') == medId &&
-                (l['status'] as String? ?? '').toLowerCase() == 'missed')
-            .length;
-        final sched = medScheduledCount[medId] ?? 0;
-        final logged = medLoggedCount[medId] ?? 0;
-        medMap.putIfAbsent(name, () => {'taken': 0, 'missed': 0, 'pending': 0});
-        medMap[name]!['missed'] = medMissed;
-        medMap[name]!['pending'] = (sched - logged).clamp(0, sched);
+
+        int medConfirmed = 0;
+        int medMissed = 0;
+        int medSkipped = 0;
+
+        for (final log in filteredLogs) {
+          if ((log['medicationId'] as String? ?? '') != medId) continue;
+          final status = (log['status'] as String? ?? '').toLowerCase();
+          if (status == 'confirmed' || status == 'taken') {
+            medConfirmed++;
+          } else if (status == 'missed') {
+            medMissed++;
+          } else if (status == 'skipped') {
+            medSkipped++;
+          }
+        }
+
+        medMap[name] = {
+          'taken': medConfirmed,
+          'missed': medMissed + medSkipped,
+          'pending': 0,
+        };
       }
     }
 
@@ -272,17 +287,22 @@ class _ReportsScreenState extends State<ReportsScreen> {
         total += times.length;
       }
     } else {
-      total = totalScheduled;
+      // Non-daily total = confirmed + missed + skipped only. Pending is
+      // never shown on Weekly/Monthly/Yearly tabs.
+      total = taken + missed;
     }
 
     final medStats = medMap.entries.map((e) {
-      final t = e.value['taken']! + e.value['missed']! + e.value['pending']!;
+      // For non-daily tabs, pending is always 0 so this is equivalent to
+      // taken + missed. For daily, includes pending in the per-med total.
+      final effectivePending = isDaily ? e.value['pending']! : 0;
+      final t = e.value['taken']! + e.value['missed']! + effectivePending;
       final pct = t == 0 ? 0 : ((e.value['taken']! / t) * 100).round();
       return MedStat(
         name: e.key,
         taken: e.value['taken']!,
         missed: e.value['missed']!,
-        pending: e.value['pending']!,
+        pending: effectivePending,
         total: t,
         adherencePct: pct,
       );
@@ -562,14 +582,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
     // the insight text, falling back to the period-level percent when
     // no 7-day data is available.
     final insight = _adherenceService.generateInsightText(adherencePercent.toDouble());
+    // Total for non-daily tabs = confirmed + missed + skipped only (no pending).
+    final nonDailyTotal = stats.taken + stats.missed;
     return [
       _adherenceCard(
         title: "This Week's Adherence",
         percent: adherencePercent,
         taken: stats.taken,
         missed: stats.missed,
-        pending: stats.pending,
-        total: stats.total,
+        pending: 0,
+        total: nonDailyTotal,
         insightText: insight,
       ),
       const SizedBox(height: 20),
@@ -585,58 +607,66 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   // ─────────────────── Monthly ───────────────────
-  List<Widget> _monthlyBody(int adherencePercent, DoseStats stats) => [
-        _adherenceCard(
-          title: "This Month's Adherence",
-          percent: adherencePercent,
-          taken: stats.taken,
-          missed: stats.missed,
-          pending: stats.pending,
-          total: stats.total,
-        ),
-        const SizedBox(height: 20),
-        _summaryCard(
-          title: 'Monthly Health Summary',
-          adherencePercent: adherencePercent.toDouble(),
-          stats: stats,
-          extraRows: [],
-        ),
-        const SizedBox(height: 16),
-        _insightCard(
-          'Monthly Insight',
-          stats.missed > 0
-              ? '${stats.missed} dose${stats.missed == 1 ? '' : 's'} were missed this month. Evening medications tend to be missed most — consider a reminder after dinner.'
-              : stats.taken > 0
-                  ? 'Your adherence remained strong throughout the month. Keep maintaining this habit!'
-                  : 'No doses recorded this month. Add medications and log doses to track monthly progress.',
-        ),
-      ];
+  List<Widget> _monthlyBody(int adherencePercent, DoseStats stats) {
+    // Total for non-daily tabs = confirmed + missed + skipped only (no pending).
+    final nonDailyTotal = stats.taken + stats.missed;
+    return [
+      _adherenceCard(
+        title: "This Month's Adherence",
+        percent: adherencePercent,
+        taken: stats.taken,
+        missed: stats.missed,
+        pending: 0,
+        total: nonDailyTotal,
+      ),
+      const SizedBox(height: 20),
+      _summaryCard(
+        title: 'Monthly Health Summary',
+        adherencePercent: adherencePercent.toDouble(),
+        stats: stats,
+        extraRows: [],
+      ),
+      const SizedBox(height: 16),
+      _insightCard(
+        'Monthly Insight',
+        stats.missed > 0
+            ? '${stats.missed} dose${stats.missed == 1 ? '' : 's'} were missed this month. Evening medications tend to be missed most — consider a reminder after dinner.'
+            : stats.taken > 0
+                ? 'Your adherence remained strong throughout the month. Keep maintaining this habit!'
+                : 'No doses recorded this month. Add medications and log doses to track monthly progress.',
+      ),
+    ];
+  }
 
   // ─────────────────── Yearly ───────────────────
-  List<Widget> _yearlyBody(int adherencePercent, DoseStats stats) => [
-        _adherenceCard(
-          title: "This Year's Adherence",
-          percent: adherencePercent,
-          taken: stats.taken,
-          missed: stats.missed,
-          pending: stats.pending,
-          total: stats.total,
-        ),
-        const SizedBox(height: 20),
-        _summaryCard(
-          title: 'Annual Health Summary',
-          adherencePercent: adherencePercent.toDouble(),
-          stats: stats,
-          extraRows: [],
-        ),
-        const SizedBox(height: 16),
-        _insightCard(
-          'Annual Insight',
-          stats.total > 0
-              ? 'You tracked ${stats.total} dose${stats.total == 1 ? '' : 's'} this year with an overall adherence of $adherencePercent%. Adaptive reminders can help reduce missed doses further.'
-              : 'No doses recorded this year yet. Start tracking your medications to see annual insights.',
-        ),
-      ];
+  List<Widget> _yearlyBody(int adherencePercent, DoseStats stats) {
+    // Total for non-daily tabs = confirmed + missed + skipped only (no pending).
+    final nonDailyTotal = stats.taken + stats.missed;
+    return [
+      _adherenceCard(
+        title: "This Year's Adherence",
+        percent: adherencePercent,
+        taken: stats.taken,
+        missed: stats.missed,
+        pending: 0,
+        total: nonDailyTotal,
+      ),
+      const SizedBox(height: 20),
+      _summaryCard(
+        title: 'Annual Health Summary',
+        adherencePercent: adherencePercent.toDouble(),
+        stats: stats,
+        extraRows: [],
+      ),
+      const SizedBox(height: 16),
+      _insightCard(
+        'Annual Insight',
+        nonDailyTotal > 0
+            ? 'You tracked $nonDailyTotal dose${nonDailyTotal == 1 ? '' : 's'} this year with an overall adherence of $adherencePercent%. Adaptive reminders can help reduce missed doses further.'
+            : 'No doses recorded this year yet. Start tracking your medications to see annual insights.',
+      ),
+    ];
+  }
 
   // ─────────────────── Widgets ───────────────────
 
@@ -722,7 +752,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     const SizedBox(height: 12),
                     _statLine('Taken', '$taken'),
                     _statLine('Missed', '$missed'),
-                    _statLine('Pending', '$pending'),
+                    if (_tab == 0) _statLine('Pending', '$pending'),
                     _statLine('Total doses', '$total', bold: true),
                   ],
                 ),
@@ -872,7 +902,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               icon: Icons.check_circle, iconColor: AppColors.primaryTeal),
           _summaryRow('Doses missed', '${stats.missed}',
               icon: Icons.cancel, iconColor: AppColors.errorRed),
-          if (stats.pending > 0)
+          if (_tab == 0 && stats.pending > 0)
             _summaryRow('Doses pending', '${stats.pending}',
                 icon: Icons.circle_outlined, iconColor: AppColors.navy),
           for (final r in extraRows)

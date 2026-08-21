@@ -69,15 +69,27 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
     }
   }
 
-  Widget _toggleTile(String title, String subtitle, bool value, ValueChanged<bool>? onChanged) {
+  Widget _toggleTile(
+    String title,
+    String subtitle,
+    bool value,
+    ValueChanged<bool>? onChanged, {
+    bool enabled = true,
+    bool comingSoon = false,
+  }) {
     return Column(
       children: [
         SwitchListTile(
           title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-          subtitle: Text(subtitle, style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
+          subtitle: comingSoon
+              ? const Text(
+                  'Coming soon',
+                  style: TextStyle(color: Colors.grey, fontSize: 12),
+                )
+              : Text(subtitle, style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
           value: value,
           activeThumbColor: AppColors.primaryTeal,
-          onChanged: onChanged,
+          onChanged: enabled ? onChanged : null,
         ),
         const Divider(height: 1),
       ],
@@ -117,13 +129,36 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       child: Column(
                         children: [
-                          _toggleTile('Medication Reminders', 'Get reminded when it is time to take your medication', med, (v) => setState(() => med = v)),
-                          _toggleTile('Missed Dose Alerts', 'Get alerted when a dose is missed', missed, (v) => setState(() => missed = v)),
-                          _toggleTile('Appointment Reminders', 'Get reminders before doctor appointments', appt, (v) => setState(() => appt = v)),
-                          _toggleTile('Checkup Suggestions', 'Get suggestions when you are overdue for a checkup', checkup, (v) => setState(() => checkup = v)),
+                          _toggleTile('Medication Reminders (Coming soon)', 'Get reminded when it is time to take your medication', med, (v) => setState(() => med = v)),
+                          _toggleTile('Missed Dose Alerts (Coming soon)', 'Get alerted when a dose is missed', missed, (v) => setState(() => missed = v)),
+                          _toggleTile('Appointment Reminders (Coming soon)', 'Get reminders before doctor appointments', appt, (v) => setState(() => appt = v)),
+                          _toggleTile('Checkup Suggestions (Coming soon)', 'Get suggestions when you are overdue for a checkup', checkup, (v) => setState(() => checkup = v)),
                           _toggleTile('Drug Conflict Warnings', 'Always receive safety warnings (cannot disable)', conflict, null),
-                          _toggleTile('Weekly Health Summary', 'Receive a weekly summary of your health data', weekly, (v) => setState(() => weekly = v)),
-                          _toggleTile('Low Stock Reminders', 'Get reminded when a medication stock is running low', lowStock, (v) => setState(() => lowStock = v)),
+                          _toggleTile('Low Stock Reminders (Coming soon)', 'Get reminded when a medication stock is running low', lowStock, (v) => setState(() => lowStock = v)),
+                          _toggleTile(
+                            'Weekly Summary',
+                            '',
+                            weekly,
+                            null,
+                            enabled: false,
+                            comingSoon: true,
+                          ),
+                          _toggleTile(
+                            'SMS Notifications',
+                            '',
+                            false,
+                            null,
+                            enabled: false,
+                            comingSoon: true,
+                          ),
+                          _toggleTile(
+                            'Email Notifications',
+                            '',
+                            false,
+                            null,
+                            enabled: false,
+                            comingSoon: true,
+                          ),
                           _toggleTile(
                             'Vibrate on Reminders',
                             'Phone vibrates when medication or appointment reminders fire',
@@ -159,7 +194,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                           children: [
                             SwitchListTile(
                               contentPadding: EdgeInsets.zero,
-                              title: const Text('Enable Quiet Hours', style: TextStyle(fontWeight: FontWeight.w600)),
+                              title: const Text('Enable Quiet Hours (Coming soon)', style: TextStyle(fontWeight: FontWeight.w600)),
                               value: quietHours,
                               activeThumbColor: AppColors.primaryTeal,
                               onChanged: (v) => setState(() => quietHours = v),

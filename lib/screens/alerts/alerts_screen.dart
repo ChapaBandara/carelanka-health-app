@@ -56,7 +56,17 @@ class _AlertsScreenState extends State<AlertsScreen> with SingleTickerProviderSt
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                   side: const BorderSide(color: Color(0xFFCCCCCC)),
                 ),
-                onPressed: () {},
+                onPressed: () async {
+                  for (final a in alerts) {
+                    final alertId = a['alertId'];
+                    if (alertId != null && alertId.isNotEmpty) {
+                      await AlertService().markAsRead(alertId);
+                    }
+                  }
+                  if (context.mounted) {
+                    showFirebaseSuccessSnackBar(context, 'All alerts marked as read');
+                  }
+                },
                 child: const Text('Mark all read', style: TextStyle(fontSize: 12)),
               ),
             ),
@@ -133,8 +143,9 @@ class _AlertsScreenState extends State<AlertsScreen> with SingleTickerProviderSt
   Widget _card(BuildContext context, Map<String, String> a) {
     final accent = _color(a['accent'] ?? 'teal');
     final tint = _tint(a['tint'] ?? 'white');
-    final isLowStockAlert = (a['type'] ?? '') == 'general' &&
-            (a['title'] ?? '').toLowerCase().contains('low') ||
+    final isLowStockAlert = (a['type'] ?? '') == 'low_stock' ||
+        ((a['type'] ?? '') == 'general' &&
+            (a['title'] ?? '').toLowerCase().contains('low')) ||
         (a['message'] ?? '').toLowerCase().contains('running low') ||
         (a['message'] ?? '').toLowerCase().contains('supply remaining');
     return InkWell(
@@ -143,11 +154,11 @@ class _AlertsScreenState extends State<AlertsScreen> with SingleTickerProviderSt
           Navigator.pushNamed(context, '/drug-conflict-detail', arguments: a);
         } else if (a['type'] == 'checkup') {
           Navigator.pushNamed(context, AppRoutes.appointments);
-        } else if (a['type'] == 'missed') {
+        } else if (a['type'] == 'missed' || a['type'] == 'missed_dose') {
           Navigator.pushNamed(context, AppRoutes.reminderHistory);
-        } else {
-          _markRead(context, a);
         }
+        // General/low-stock alerts: do NOT auto-mark as read on tap.
+        // User must explicitly press "I Got It" or "View Medication".
       },
       borderRadius: BorderRadius.circular(14),
       child: Container(
@@ -209,7 +220,23 @@ class _AlertsScreenState extends State<AlertsScreen> with SingleTickerProviderSt
                         children: [
                           Expanded(
                             child: OutlinedButton(
-                              onPressed: () => _markRead(context, a),
+                              onPressed: () async {
+                                await _markRead(context, a);
+                                // Navigate to the medication form so the user
+                                // can restock / renew prescription.
+                                final medId = a['medicationId'] ?? '';
+                                final illnessId = a['illnessId'] ?? '';
+                                if (context.mounted) {
+                                  Navigator.pushNamed(
+                                    context,
+                                    AppRoutes.addMedication,
+                                    arguments: {
+                                      if (illnessId.isNotEmpty) 'illnessId': illnessId,
+                                      if (medId.isNotEmpty) 'medicationId': medId,
+                                    },
+                                  );
+                                }
+                              },
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: AppColors.primaryTeal,
                                 side: const BorderSide(color: AppColors.primaryTeal),
@@ -217,7 +244,7 @@ class _AlertsScreenState extends State<AlertsScreen> with SingleTickerProviderSt
                                     borderRadius: BorderRadius.circular(24)),
                                 padding: const EdgeInsets.symmetric(vertical: 10),
                               ),
-                              child: const Text('I Got It',
+                              child: const Text('I Got It 💊',
                                   style: TextStyle(fontWeight: FontWeight.w700)),
                             ),
                           ),
@@ -285,9 +312,12 @@ class _AlertsScreenState extends State<AlertsScreen> with SingleTickerProviderSt
       case 'allergy':
         return Icons.shield_outlined;
       case 'missed':
+      case 'missed_dose':
         return Icons.medication_rounded;
       case 'checkup':
         return Icons.local_hospital_outlined;
+      case 'low_stock':
+        return Icons.inventory_2_outlined;
       default:
         return Icons.info_outline;
     }

@@ -1,6 +1,6 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:carelanka_app/core/constants/app_routes.dart';
 import 'package:carelanka_app/firebase_options.dart';
@@ -10,12 +10,19 @@ import 'package:carelanka_app/services/reminder_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+
+void _safePrint(String message) {
+  if (kDebugMode) {
+    developer.log(message);
+  }
+}
 
 /// Global navigator key — owned here (not in main.dart) to avoid a circular
 /// import between notification_service.dart and main.dart.
@@ -31,7 +38,7 @@ final GlobalKey<NavigatorState> notificationNavigatorKey =
 @pragma('vm:entry-point')
 Future<void> _onBackgroundNotificationAction(
     NotificationResponse response) async {
-  debugPrint('🔔 BACKGROUND HANDLER FIRED: action=${response.actionId}, payload=${response.payload}');
+  _safePrint('🔔 BACKGROUND HANDLER FIRED: action=${response.actionId}, payload=${response.payload}');
   try {
     // Firebase must be initialised in the background isolate.
     // Passing options avoids a crash when google-services.json is needed.
@@ -75,7 +82,7 @@ Future<void> _onBackgroundNotificationAction(
     final adherence = AdherenceService();
 
     if (actionId.startsWith('taken_')) {
-      debugPrint('✅ USER TAPPED: Taken');
+      _safePrint('✅ USER TAPPED: Taken');
       try {
         await reminder.logReminderAction(
           userId: userId,
@@ -87,15 +94,15 @@ Future<void> _onBackgroundNotificationAction(
           medicationName: medicationName,
           medicationDosage: dosage,
         );
-        debugPrint('✅ LOGGED REMINDER: confirmed');
+        _safePrint('✅ LOGGED REMINDER: confirmed');
       } catch (e) {
-        debugPrint('❌ FAILED TO LOG REMINDER: $e');
+        _safePrint('❌ FAILED TO LOG REMINDER: $e');
       }
       try {
         await adherence.decrementStock(medicationId, userId);
       } catch (_) {}
     } else if (actionId.startsWith('snooze_')) {
-      debugPrint('✅ USER TAPPED: Snooze');
+      _safePrint('✅ USER TAPPED: Snooze');
       try {
         await reminder.logReminderAction(
           userId: userId,
@@ -107,9 +114,9 @@ Future<void> _onBackgroundNotificationAction(
           medicationName: medicationName,
           medicationDosage: dosage,
         );
-        debugPrint('✅ LOGGED REMINDER: snoozed');
+        _safePrint('✅ LOGGED REMINDER: snoozed');
       } catch (e) {
-        debugPrint('❌ FAILED TO LOG REMINDER: $e');
+        _safePrint('❌ FAILED TO LOG REMINDER: $e');
       }
       // Reschedule a one-shot notification for 15 minutes from now.
       try {
@@ -120,7 +127,7 @@ Future<void> _onBackgroundNotificationAction(
         );
       } catch (_) {}
     } else if (actionId.startsWith('skip_')) {
-      debugPrint('✅ USER TAPPED: Skip');
+      _safePrint('✅ USER TAPPED: Skip');
       try {
         await reminder.logReminderAction(
           userId: userId,
@@ -132,9 +139,9 @@ Future<void> _onBackgroundNotificationAction(
           medicationName: medicationName,
           medicationDosage: dosage,
         );
-        debugPrint('✅ LOGGED REMINDER: skipped');
+        _safePrint('✅ LOGGED REMINDER: skipped');
       } catch (e) {
-        debugPrint('❌ FAILED TO LOG REMINDER: $e');
+        _safePrint('❌ FAILED TO LOG REMINDER: $e');
       }
     }
     // If actionId is empty, the user tapped the notification body — navigate
@@ -182,9 +189,9 @@ class NotificationService {
     // Request SCHEDULE_EXACT_ALARM permission at runtime (Android 12+)
     try {
       final status = await Permission.scheduleExactAlarm.request();
-      debugPrint('✅ SCHEDULE_EXACT_ALARM permission: $status');
+      _safePrint('✅ SCHEDULE_EXACT_ALARM permission: $status');
     } catch (e) {
-      debugPrint('⚠️ Could not request SCHEDULE_EXACT_ALARM: $e');
+      _safePrint('⚠️ Could not request SCHEDULE_EXACT_ALARM: $e');
     }
 
     // Explicitly create notification channels so Samsung and other OEM devices
@@ -200,7 +207,7 @@ class NotificationService {
         showBadge: true,
       ),
     );
-    debugPrint('✅ Notification channel created: carelanka_medication_channel');
+    _safePrint('✅ Notification channel created: carelanka_medication_channel');
 
     // Create the appointment reminders channel.
     // Without this, Android 8+ silently drops all appointment notifications.
@@ -215,7 +222,36 @@ class NotificationService {
         showBadge: true,
       ),
     );
-    debugPrint('✅ Notification channel created: appointment_reminders');
+    _safePrint('✅ Notification channel created: appointment_reminders');
+
+    // Create the high-priority appointment reminder channel used by
+    // showAppointmentReminder() (in-app polling reminders).
+    await androidPlugin?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        'carelanka_appointment_channel',
+        'CareLanka Appointment Reminders',
+        description: 'In-app appointment reminder notifications',
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+        showBadge: true,
+      ),
+    );
+    _safePrint('✅ Notification channel created: carelanka_appointment_channel');
+
+    // Create the alerts channel for drug conflicts.
+    await androidPlugin?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        'carelanka_alerts_channel',
+        'CareLanka Health Alerts',
+        description: 'Drug conflict and health alerts',
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+        showBadge: true,
+      ),
+    );
+    _safePrint('✅ Notification channel created: carelanka_alerts_channel');
 
     // On Android 14+ (API 34+) USE_FULL_SCREEN_INTENT is a runtime permission.
     // We request it via a MethodChannel call; if the channel is not registered
@@ -228,11 +264,11 @@ class NotificationService {
       // Not implemented on this Android version or device — safe to ignore.
     }
 
-    debugPrint('NotificationService initialized');
-    debugPrint('Timezone local: ${tz.local}');
+    _safePrint('NotificationService initialized');
+    _safePrint('Timezone local: ${tz.local}');
 
     final pending = await _plugin.pendingNotificationRequests();
-    debugPrint('Pending on startup: ${pending.length}');
+    _safePrint('Pending on startup: ${pending.length}');
 
     _initialized = true;
   }
@@ -240,7 +276,7 @@ class NotificationService {
   // ── Foreground response handler ──────────────────────────────────────────
 
   void _onForegroundNotificationResponse(NotificationResponse response) {
-    debugPrint('🔔 FOREGROUND HANDLER FIRED: actionId=${response.actionId}');
+    _safePrint('🔔 FOREGROUND HANDLER FIRED: actionId=${response.actionId}');
     // Action-button taps (foreground) — delegate to the same shared handler.
     if (response.actionId != null && response.actionId!.isNotEmpty) {
       _onBackgroundNotificationAction(response);
@@ -337,7 +373,14 @@ class NotificationService {
           .collection('users')
           .doc(userId)
           .get();
-      return doc.data()?['vibrateEnabled'] as bool? ?? true;
+      final data = doc.data();
+      if (data != null && data.containsKey('notificationPreferences')) {
+        final prefs = data['notificationPreferences'] as Map?;
+        if (prefs != null && prefs.containsKey('vibrate')) {
+          return prefs['vibrate'] as bool? ?? true;
+        }
+      }
+      return data?['vibrateEnabled'] as bool? ?? true;
     } catch (_) {
       return true;
     }
@@ -445,9 +488,9 @@ class NotificationService {
       );
 
       final currentId = id++;
-      debugPrint('🔔 ATTEMPTING TO SCHEDULE: $title at $timeStr (id=$currentId)');
-      debugPrint('🔔 Scheduled date/time: $scheduled');
-      debugPrint('🔔 Payload: $payload');
+      _safePrint('🔔 ATTEMPTING TO SCHEDULE: $title at $timeStr (id=$currentId)');
+      _safePrint('🔔 Scheduled date/time: $scheduled');
+      _safePrint('🔔 Payload: $payload');
       try {
         await _zonedSchedule(
           id: currentId,
@@ -462,10 +505,10 @@ class NotificationService {
           notificationDetails: details,
           payload: payload,
         );
-        debugPrint('✅ Notification scheduled: $title at $timeStr next fire: $scheduled');
+        _safePrint('✅ Notification scheduled: $title at $timeStr next fire: $scheduled');
       } catch (e, st) {
-        debugPrint('❌ MAIN SCHEDULE FAILED: $title at $timeStr id=$currentId error=$e');
-        debugPrint('❌ StackTrace: $st');
+        _safePrint('❌ MAIN SCHEDULE FAILED: $title at $timeStr id=$currentId error=$e');
+        _safePrint('❌ StackTrace: $st');
       }
 
       // FALLBACK: Grace-period notifications for Samsung Doze workaround
@@ -484,9 +527,9 @@ class NotificationService {
           notificationDetails: details,
           payload: payload,
         );
-        debugPrint('⏰ GRACE PERIOD 1 (30s): $title at ${gracePeriod1.hour}:${gracePeriod1.minute}:${gracePeriod1.second}');
+        _safePrint('⏰ GRACE PERIOD 1 (30s): $title at ${gracePeriod1.hour}:${gracePeriod1.minute}:${gracePeriod1.second}');
       } catch (e) {
-        debugPrint('⚠️ Grace period 1 failed: $e');
+        _safePrint('⚠️ Grace period 1 failed: $e');
       }
 
       final gracePeriod2 = scheduled.add(const Duration(seconds: 60));
@@ -504,9 +547,9 @@ class NotificationService {
           notificationDetails: details,
           payload: payload,
         );
-        debugPrint('⏰ GRACE PERIOD 2 (60s): $title at ${gracePeriod2.hour}:${gracePeriod2.minute}:${gracePeriod2.second}');
+        _safePrint('⏰ GRACE PERIOD 2 (60s): $title at ${gracePeriod2.hour}:${gracePeriod2.minute}:${gracePeriod2.second}');
       } catch (e) {
-        debugPrint('⚠️ Grace period 2 failed: $e');
+        _safePrint('⚠️ Grace period 2 failed: $e');
       }
     }
   }
@@ -544,7 +587,7 @@ class NotificationService {
     for (var i = 0; i < 3; i++) {
       await _plugin.cancel(id: dayAlertId + i);
     }
-    debugPrint('🗑️ Cancelled appointment reminders for: $appointmentId');
+    _safePrint('🗑️ Cancelled appointment reminders for: $appointmentId');
   }
 
   // ── Appointment reminders ────────────────────────────────────────────────
@@ -630,7 +673,7 @@ class NotificationService {
           notificationDetails: details,
         );
       } catch (e) {
-        debugPrint('⚠️ Grace period 1 failed: $e');
+        _safePrint('⚠️ Grace period 1 failed: $e');
       }
 
       final gracePeriod2 = scheduled.add(const Duration(seconds: 60));
@@ -646,7 +689,7 @@ class NotificationService {
           notificationDetails: details,
         );
       } catch (e) {
-        debugPrint('⚠️ Grace period 2 failed: $e');
+        _safePrint('⚠️ Grace period 2 failed: $e');
       }
     }
 
@@ -682,7 +725,7 @@ class NotificationService {
           notificationDetails: details,
         );
       } catch (e) {
-        debugPrint('⚠️ Day-of alert failed ($label): $e');
+        _safePrint('⚠️ Day-of alert failed ($label): $e');
       }
     }
   }
@@ -758,6 +801,12 @@ class NotificationService {
     );
   }
 
+  Future<void> cancelSnooze(String medicationId) async {
+    await initialize();
+    final snoozeId = 600000 + (medicationId.hashCode.abs() % 10000);
+    await _plugin.cancel(id: snoozeId);
+  }
+
   // ── One-shot show helpers ─────────────────────────────────────────────────
 
   Future<void> showImmediateReminder({
@@ -777,6 +826,88 @@ class NotificationService {
           playSound: true,
           enableVibration: true,
           fullScreenIntent: true,
+        ),
+      ),
+    );
+  }
+
+  Future<void> showImmediateAppointmentReminder({
+    required int id,
+    required String doctorName,
+    required String venue,
+    required int minutesRemaining,
+  }) async {
+    await _plugin.show(
+      id: id,
+      title: '🏥 Appointment Reminder',
+      body: 'Appointment Reminder — $doctorName at $venue in $minutesRemaining minutes',
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'appointment_reminders',
+          'Appointment Reminders',
+          importance: Importance.high,
+          priority: Priority.high,
+          playSound: true,
+          enableVibration: true,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentSound: true,
+        ),
+      ),
+    );
+  }
+
+  Future<void> showAppointmentReminder({
+    required String doctorName,
+    required String venue,
+    required String timeUntil,
+  }) async {
+    await initialize();
+    await _plugin.show(
+      id: 995,
+      title: '🏥 Appointment Reminder',
+      body: 'Appointment with $doctorName at $venue in $timeUntil',
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'carelanka_appointment_channel',
+          'CareLanka Appointment Reminders',
+          importance: Importance.max,
+          priority: Priority.max,
+          playSound: true,
+          enableVibration: true,
+          visibility: NotificationVisibility.public,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentSound: true,
+        ),
+      ),
+    );
+  }
+
+  Future<void> showDayBeforeAppointmentNotification({
+    required int id,
+    required String doctorName,
+    required String venue,
+    required String timeString,
+  }) async {
+    await _plugin.show(
+      id: id,
+      title: '📅 Appointment Tomorrow',
+      body: 'Tomorrow you have an appointment with $doctorName at $venue at $timeString',
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'appointment_reminders',
+          'Appointment Reminders',
+          importance: Importance.high,
+          priority: Priority.high,
+          playSound: true,
+          enableVibration: true,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentSound: true,
         ),
       ),
     );
@@ -888,6 +1019,28 @@ class NotificationService {
     );
   }
 
+  Future<void> showDrugConflictAlert({
+    required String medicationName,
+    required String conflictingWith,
+  }) async {
+    await _plugin.show(
+      id: 996,
+      title: '⚠️ Drug Conflict Detected',
+      body: '$medicationName conflicts with $conflictingWith — check with your doctor',
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'carelanka_alerts_channel',
+          'CareLanka Health Alerts',
+          importance: Importance.max,
+          priority: Priority.max,
+          playSound: true,
+          enableVibration: true,
+          color: Color(0xFFFF5252),
+        ),
+      ),
+    );
+  }
+
   // ── Internal helpers ─────────────────────────────────────────────────────
 
   Future<void> _zonedSchedule({
@@ -908,20 +1061,20 @@ class NotificationService {
     final colombo = tz.getLocation('Asia/Colombo');
     final tzDateTime = tz.TZDateTime.from(scheduledDate, colombo);
 
-    debugPrint('🔔 ATTEMPTING ZONEDSCHEDULE: id=$id, date=$tzDateTime, mode=$mode');
+    _safePrint('🔔 ATTEMPTING ZONEDSCHEDULE: id=$id, date=$tzDateTime, mode=$mode');
     final now = DateTime.now();
     final tzNow = tz.TZDateTime.now(colombo);
     final tzScheduled = tzDateTime;
     final diffMinutes = tzScheduled.difference(tzNow).inMinutes;
-    debugPrint('📊 TIME DIAGNOSTIC:');
-    debugPrint('  System now: $now');
-    debugPrint('  TZ now (Colombo): $tzNow');
-    debugPrint('  TZ scheduled (Colombo): $tzScheduled');
-    debugPrint('  Diff: $diffMinutes minutes');
+    _safePrint('📊 TIME DIAGNOSTIC:');
+    _safePrint('  System now: $now');
+    _safePrint('  TZ now (Colombo): $tzNow');
+    _safePrint('  TZ scheduled (Colombo): $tzScheduled');
+    _safePrint('  Diff: $diffMinutes minutes');
     if (diffMinutes < 0) {
-      debugPrint('  ❌ ALARM IN PAST! Scheduled for yesterday/earlier');
+      _safePrint('  ❌ ALARM IN PAST! Scheduled for yesterday/earlier');
     } else if (diffMinutes < 1) {
-      debugPrint('  ⚠️ ALARM VERY SOON (< 1 min)');
+      _safePrint('  ⚠️ ALARM VERY SOON (< 1 min)');
     }
     try {
       await _plugin.zonedSchedule(
@@ -934,15 +1087,15 @@ class NotificationService {
         body: body,
         payload: payload,
       );
-      debugPrint('✅ ZONEDSCHEDULE SUCCESS: id=$id');
+      _safePrint('✅ ZONEDSCHEDULE SUCCESS: id=$id');
     } on PlatformException catch (e) {
       if (e.code != 'exact_alarms_not_permitted' ||
           mode == AndroidScheduleMode.inexactAllowWhileIdle) {
-        debugPrint('❌ ZONEDSCHEDULE FAILED: id=$id, error=${e.code}: ${e.message}');
+        _safePrint('❌ ZONEDSCHEDULE FAILED: id=$id, error=${e.code}: ${e.message}');
         rethrow;
       }
       // Fallback to inexact if exact alarm permission was denied.
-      debugPrint('⚠️ ZONEDSCHEDULE: exact alarm denied (${e.code}), retrying with inexactAllowWhileIdle — id=$id');
+      _safePrint('⚠️ ZONEDSCHEDULE: exact alarm denied (${e.code}), retrying with inexactAllowWhileIdle — id=$id');
       try {
         await _plugin.zonedSchedule(
           id: id,
@@ -954,10 +1107,10 @@ class NotificationService {
           body: body,
           payload: payload,
         );
-        debugPrint('✅ ZONEDSCHEDULE SUCCESS (inexact fallback): id=$id');
+        _safePrint('✅ ZONEDSCHEDULE SUCCESS (inexact fallback): id=$id');
       } catch (e2, st) {
-        debugPrint('❌ ZONEDSCHEDULE FAILED (inexact fallback): id=$id, error=$e2');
-        debugPrint('❌ StackTrace: $st');
+        _safePrint('❌ ZONEDSCHEDULE FAILED (inexact fallback): id=$id, error=$e2');
+        _safePrint('❌ StackTrace: $st');
         rethrow;
       }
     }
@@ -968,16 +1121,16 @@ class NotificationService {
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
     if (android == null) {
-      debugPrint('⚠️ Android plugin is null, using inexactAllowWhileIdle');
+      _safePrint('⚠️ Android plugin is null, using inexactAllowWhileIdle');
       return AndroidScheduleMode.inexactAllowWhileIdle;
     }
     final canExact = await android.canScheduleExactNotifications();
-    debugPrint('🔔 canScheduleExactNotifications: $canExact');
+    _safePrint('🔔 canScheduleExactNotifications: $canExact');
     if (canExact == true) {
-      debugPrint('✅ Using EXACT_ALLOW_WHILE_IDLE mode');
+      _safePrint('✅ Using EXACT_ALLOW_WHILE_IDLE mode');
       return AndroidScheduleMode.exactAllowWhileIdle;
     }
-    debugPrint('⚠️ Using INEXACT_ALLOW_WHILE_IDLE mode (notifications may be delayed)');
+    _safePrint('⚠️ Using INEXACT_ALLOW_WHILE_IDLE mode (notifications may be delayed)');
     return AndroidScheduleMode.inexactAllowWhileIdle;
   }
 
@@ -1017,7 +1170,7 @@ class NotificationService {
           MethodChannel('com.chapabandara.carelanka_app/battery');
       await platform.invokeMethod('requestBatteryOptimization');
     } catch (e) {
-      debugPrint('Battery optimization request: $e');
+      _safePrint('Battery optimization request: $e');
     }
   }
 
@@ -1038,7 +1191,7 @@ class NotificationService {
         ),
       ),
     );
-    debugPrint('Test notification shown');
+    _safePrint('Test notification shown');
   }
 
   Future<void> scheduleTestIn10Seconds({
@@ -1069,12 +1222,12 @@ class NotificationService {
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
     );
 
-    debugPrint('10-second test notification scheduled for: $scheduledDate');
+    _safePrint('10-second test notification scheduled for: $scheduledDate');
 
     final pending = await _plugin.pendingNotificationRequests();
-    debugPrint('Total pending notifications: ${pending.length}');
+    _safePrint('Total pending notifications: ${pending.length}');
     for (final n in pending) {
-      debugPrint('Pending: id=${n.id} title=${n.title}');
+      _safePrint('Pending: id=${n.id} title=${n.title}');
     }
   }
 }

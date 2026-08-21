@@ -18,6 +18,7 @@ import 'package:carelanka_app/services/reminder_service.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:provider/provider.dart';
@@ -497,8 +498,8 @@ class _DashboardScreenState extends State<DashboardScreen> with RouteAware {
                 final taken = takenSnap.data ?? 0;
                 final hasMeds = activeMeds.isNotEmpty;
 
-                return FutureBuilder<AdherenceResult>(
-                  future: AdherenceService().calculateOverallScore(userId),
+                return StreamBuilder<AdherenceResult>(
+                  stream: AdherenceService().watchOverallScore(userId),
                   builder: (context, adherenceSnap) {
                     final adherence = adherenceSnap.data;
                     return Column(
@@ -645,8 +646,17 @@ class _DashboardScreenState extends State<DashboardScreen> with RouteAware {
         final data = doc.data();
         final illnessId = data['illnessId'] as String? ?? '';
 
-        // Skip medications whose illness is completed.
-        if (!activeIllnessIds.contains(illnessId)) continue;
+        // Cross-check each medication's illnessId against the illnesses collection
+        if (illnessId.isNotEmpty) {
+          final illnessDoc = await FirebaseFirestore.instance
+              .collection('illnesses')
+              .doc(illnessId)
+              .get();
+          if (illnessDoc.exists) {
+            final status = illnessDoc.data()?['status'] as String? ?? 'active';
+            if (status == 'completed') continue;
+          }
+        }
 
         final times = List<String>.from(data['scheduledTimes'] as List? ?? []);
         final name = data['name'] as String? ?? '';
@@ -682,7 +692,7 @@ class _DashboardScreenState extends State<DashboardScreen> with RouteAware {
         }
       }
 
-      debugPrint('📋 Dashboard medications: ${upcoming.map((m) => m['name']).toList()}');
+      if (kDebugMode) debugPrint('📋 Dashboard medications: ${upcoming.map((m) => m['name']).toList()}');
 
       if (upcoming.isEmpty) return null;
       upcoming.sort((a, b) =>
