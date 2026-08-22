@@ -408,6 +408,7 @@ class NotificationService {
     // can log the dose without querying Firestore for the medication details.
     String userId = '',
     String illnessId = '',
+    String patientName = '',
   }) async {
     await initialize();
     final vibrate = await _vibrateForCurrentUser();
@@ -432,6 +433,7 @@ class NotificationService {
         'illnessName': condition,
         'illnessId': illnessId,
         'userId': userId,
+        'patientName': patientName,
         'mealTiming': mealTiming,
         'scheduledTime': timeStr.trim(),
         'scheduledTimeMillis': scheduledDt.millisecondsSinceEpoch,
@@ -497,7 +499,9 @@ class NotificationService {
           scheduledDate: scheduled,
           channelId: 'carelanka_medication_channel',
           channelName: 'CareLanka Medication Reminders',
-          title: 'Time for your medication 💊',
+          title: patientName.isNotEmpty
+              ? '$patientName — Medication reminder 💊'
+              : 'Time for your medication 💊',
           body: dosage.isNotEmpty
               ? '$title $dosage${condition.isNotEmpty ? ' — $condition' : ''}'
               : '$title${condition.isNotEmpty ? ' — $condition' : ''}',
@@ -539,7 +543,9 @@ class NotificationService {
           scheduledDate: gracePeriod2,
           channelId: 'carelanka_medication_channel',
           channelName: 'CareLanka Medication Reminders',
-          title: 'Time for your medication 💊',
+          title: patientName.isNotEmpty
+              ? '$patientName — Medication reminder 💊'
+              : 'Time for your medication 💊',
           body: dosage.isNotEmpty
               ? '$title $dosage${condition.isNotEmpty ? ' — $condition' : ''}'
               : '$title${condition.isNotEmpty ? ' — $condition' : ''}',
@@ -812,10 +818,14 @@ class NotificationService {
   Future<void> showImmediateReminder({
     required String medicationName,
     required String dosage,
+    String patientName = '',
   }) async {
+    final title = patientName.isNotEmpty
+        ? '💊 Time for $patientName\'s medication'
+        : '💊 Time for your medication';
     await _plugin.show(
       id: 997,
-      title: '💊 Time for your medication',
+      title: title,
       body: '$medicationName $dosage',
       notificationDetails: const NotificationDetails(
         android: AndroidNotificationDetails(

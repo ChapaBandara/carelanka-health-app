@@ -10,7 +10,9 @@ import 'package:carelanka_app/widgets/carelanka/profile_dropdown_field.dart';
 import 'package:carelanka_app/widgets/carelanka/success_notification_overlay.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:carelanka_app/core/utils/active_uid.dart';
+import 'package:carelanka_app/providers/family_provider.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 class AddMedicationScreen extends StatefulWidget {
   const AddMedicationScreen({super.key});
@@ -584,6 +586,8 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
 
     if (!mounted) return;
     final userId = context.activeScopeId;
+    final familyProvider = context.read<FamilyProvider>();
+    final patientName = familyProvider.isViewingFamilyMember ? familyProvider.activeDisplayName : '';
     final medService = MedicationService();
     setState(() => _saving = true);
 
@@ -704,6 +708,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
             mealTiming: _mealTimingValue(_mealTiming),
             userId: userId,
             illnessId: illnessId,
+            patientName: patientName,
           );
         } catch (_) {}
       }

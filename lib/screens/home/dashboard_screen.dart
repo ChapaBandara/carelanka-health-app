@@ -13,10 +13,12 @@ import 'package:carelanka_app/services/appointment_service.dart';
 import 'package:carelanka_app/services/illness_service.dart';
 import 'package:carelanka_app/services/medication_service.dart';
 import 'package:carelanka_app/services/checkup_service.dart';
+import 'package:carelanka_app/services/family_service.dart';
 import 'package:carelanka_app/services/notification_service.dart';
 import 'package:carelanka_app/services/reminder_service.dart';
 import 'package:carelanka_app/widgets/empty_list_placeholder.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -187,56 +189,57 @@ class _DashboardScreenState extends State<DashboardScreen> with RouteAware {
 
   Future<void> _rescheduleAllNotifications(String userId) async {
     try {
-      // First cancel ALL existing medication reminder notifications
-      // IDs 0-99999 are medication reminder IDs
-      // We cancel a wide range to ensure stale ones are cleared
+      final ownUid = FirebaseAuth.instance.currentUser?.uid ?? userId;
+      final scopes = await FamilyService().fetchAllFamilyScopes(ownUid);
+
       final plugin = FlutterLocalNotificationsPlugin();
       final pending = await plugin.pendingNotificationRequests();
       for (final n in pending) {
-        if (n.id < 300000) { // medication IDs are below 300000
+        if (n.id < 300000) {
           await plugin.cancel(id: n.id);
         }
       }
 
-      // Then reschedule only active medications
-      final medSnap = await FirebaseFirestore.instance
-          .collection('medications')
-          .where('userId', isEqualTo: userId)
-          .where('active', isEqualTo: true)
-          .get();
+      for (final scope in scopes) {
+        final medSnap = await FirebaseFirestore.instance
+            .collection('medications')
+            .where('userId', isEqualTo: scope.scopeId)
+            .where('active', isEqualTo: true)
+            .get();
 
-      for (final doc in medSnap.docs) {
-        final data = doc.data();
-        final times =
-            List<String>.from(data['scheduledTimes'] as List? ?? []);
-        final name = data['name'] as String? ?? '';
-        final illnessId = data['illnessId'] as String? ?? '';
+        for (final doc in medSnap.docs) {
+          final data = doc.data();
+          final times =
+              List<String>.from(data['scheduledTimes'] as List? ?? []);
+          final name = data['name'] as String? ?? '';
+          final illnessId = data['illnessId'] as String? ?? '';
 
-        if (times.isEmpty) continue;
+          if (times.isEmpty) continue;
 
-        // Fetch illness name — medications store illnessId, not a condition field.
-        String illnessName = '';
-        if (illnessId.isNotEmpty) {
-          try {
-            final illnessDoc = await FirebaseFirestore.instance
-                .collection('illnesses')
-                .doc(illnessId)
-                .get();
-            illnessName =
-                illnessDoc.data()?['illnessName'] as String? ?? '';
-          } catch (_) {}
+          String illnessName = '';
+          if (illnessId.isNotEmpty) {
+            try {
+              final illnessDoc = await FirebaseFirestore.instance
+                  .collection('illnesses')
+                  .doc(illnessId)
+                  .get();
+              illnessName =
+                  illnessDoc.data()?['illnessName'] as String? ?? '';
+            } catch (_) {}
+          }
+
+          await NotificationService.instance.scheduleMedicationReminders(
+            medicationId: doc.id,
+            title: name,
+            timeStrings: times,
+            dosage: data['dosage'] as String? ?? '',
+            condition: illnessName,
+            mealTiming: data['mealTiming'] as String? ?? 'anytime',
+            userId: scope.scopeId,
+            illnessId: illnessId,
+            patientName: scope.isSelf ? '' : scope.patientName,
+          );
         }
-
-        await NotificationService.instance.scheduleMedicationReminders(
-          medicationId: doc.id,
-          title: name,
-          timeStrings: times,
-          dosage: data['dosage'] as String? ?? '',
-          condition: illnessName,
-          mealTiming: data['mealTiming'] as String? ?? 'anytime',
-          userId: userId,
-          illnessId: illnessId,
-        );
       }
     } catch (_) {}
   }

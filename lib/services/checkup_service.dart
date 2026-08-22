@@ -145,31 +145,39 @@ class CheckupService {
 
       final daysSince = await getDaysSinceLastVisit(userId);
 
-      // Deduplicate — one checkup alert per calendar day.
+      // Deduplicate — at most one checkup alert per calendar day / active unread alert.
       final now = DateTime.now();
       final todayMidnight = DateTime(now.year, now.month, now.day);
-      try {
-        final existing = await _firestore
-            .collection(FirebaseCollections.alerts)
-            .where('userId', isEqualTo: userId)
-            .where('type', isEqualTo: 'checkup')
-            .where('createdAt',
-                isGreaterThanOrEqualTo: Timestamp.fromDate(todayMidnight))
-            .get();
-        if (existing.docs.isNotEmpty) return;
-      } catch (_) {}
 
-      try {
-        await _firestore.collection(FirebaseCollections.alerts).add({
-          'userId': userId,
-          'type': 'checkup',
-          'message':
-              'You have not visited a doctor in $daysSince days. '
-              'Consider scheduling a checkup.',
-          'read': false,
-          'createdAt': Timestamp.fromDate(now),
-        });
-      } catch (_) {}
+      final snap = await _firestore
+          .collection(FirebaseCollections.alerts)
+          .where('userId', isEqualTo: userId)
+          .get();
+
+      final existingCheckupAlerts = snap.docs.where((doc) {
+        final d = doc.data();
+        if ((d['type'] as String? ?? '').toLowerCase() != 'checkup') return false;
+
+        final read = d['read'] == true;
+        final createdRaw = d['createdAt'];
+        if (createdRaw is Timestamp) {
+          final dt = createdRaw.toDate();
+          if (dt.isAfter(todayMidnight) || !read) return true;
+        }
+        return !read;
+      });
+
+      if (existingCheckupAlerts.isNotEmpty) return;
+
+      await _firestore.collection(FirebaseCollections.alerts).add({
+        'userId': userId,
+        'type': 'checkup',
+        'message':
+            'You have not visited a doctor in $daysSince days. '
+            'Consider scheduling a checkup.',
+        'read': false,
+        'createdAt': Timestamp.fromDate(now),
+      });
     } catch (_) {}
   }
 

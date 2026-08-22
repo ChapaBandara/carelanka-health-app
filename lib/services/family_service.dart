@@ -72,4 +72,83 @@ class FamilyService {
   Future<void> deleteFamilyMember(String profileId) async {
     await _col.doc(profileId).delete();
   }
+
+  /// Fetches all family scope UIDs/profileIds for [ownUid], including self,
+  /// dependent profiles, and linked family member accounts.
+  Future<List<FamilyScope>> fetchAllFamilyScopes(String ownUid) async {
+    final seen = <String>{ownUid};
+    final results = <FamilyScope>[
+      FamilyScope(scopeId: ownUid, patientName: '', isSelf: true),
+    ];
+    if (ownUid.isEmpty) return results;
+
+    try {
+      final snapAsOwner = await _col.where('ownerId', isEqualTo: ownUid).get();
+      for (final doc in snapAsOwner.docs) {
+        final d = doc.data();
+        final fullName = d['fullName'] as String? ?? 'Family Member';
+        final linked = d['linkedUserId'] as String? ?? '';
+
+        if (doc.id.isNotEmpty && !seen.contains(doc.id)) {
+          seen.add(doc.id);
+          results.add(FamilyScope(
+            scopeId: doc.id,
+            patientName: fullName,
+            isSelf: false,
+          ));
+        }
+
+        if (linked.isNotEmpty && !seen.contains(linked)) {
+          seen.add(linked);
+          results.add(FamilyScope(
+            scopeId: linked,
+            patientName: fullName,
+            isSelf: false,
+          ));
+        }
+      }
+    } catch (_) {}
+
+    try {
+      final snapAsLinked =
+          await _col.where('linkedUserId', isEqualTo: ownUid).get();
+      for (final doc in snapAsLinked.docs) {
+        final d = doc.data();
+        final ownerId = d['ownerId'] as String? ?? '';
+        final fullName = d['fullName'] as String? ?? 'Family Member';
+
+        if (ownerId.isNotEmpty && !seen.contains(ownerId)) {
+          seen.add(ownerId);
+          results.add(FamilyScope(
+            scopeId: ownerId,
+            patientName: fullName,
+            isSelf: false,
+          ));
+        }
+
+        if (doc.id.isNotEmpty && !seen.contains(doc.id)) {
+          seen.add(doc.id);
+          results.add(FamilyScope(
+            scopeId: doc.id,
+            patientName: fullName,
+            isSelf: false,
+          ));
+        }
+      }
+    } catch (_) {}
+
+    return results;
+  }
+}
+
+class FamilyScope {
+  final String scopeId;
+  final String patientName;
+  final bool isSelf;
+
+  const FamilyScope({
+    required this.scopeId,
+    required this.patientName,
+    required this.isSelf,
+  });
 }

@@ -23,7 +23,23 @@ class AlertService {
             if (aTime == null || bTime == null) return 0;
             return bTime.compareTo(aTime);
           });
-          return unreadDocs.map(_toUiMap).toList();
+          // Deduplicate checkup alerts by calendar day (keep latest per day)
+          final seenCheckupDays = <String>{};
+          final dedupedDocs = unreadDocs.where((doc) {
+            final type = (doc.data()['type'] as String? ?? '').toLowerCase();
+            if (type == 'checkup') {
+              final created = doc.data()['createdAt'];
+              if (created is Timestamp) {
+                final dt = created.toDate();
+                final dayKey = '${dt.year}-${dt.month}-${dt.day}';
+                if (seenCheckupDays.contains(dayKey)) return false;
+                seenCheckupDays.add(dayKey);
+              }
+            }
+            return true;
+          }).toList();
+
+          return dedupedDocs.map(_toUiMap).toList();
         });
   }
 
@@ -122,13 +138,29 @@ class AlertService {
     required String userId,
     required int daysSinceCheckup,
   }) async {
+    final now = DateTime.now();
+    final todayMidnight = DateTime(now.year, now.month, now.day);
+    final snap = await _col.where('userId', isEqualTo: userId).get();
+    final existingCheckup = snap.docs.any((d) {
+      final data = d.data();
+      if ((data['type'] as String? ?? '').toLowerCase() != 'checkup') return false;
+      final read = data['read'] == true;
+      final created = data['createdAt'];
+      if (created is Timestamp) {
+        final dt = created.toDate();
+        if (dt.isAfter(todayMidnight) || !read) return true;
+      }
+      return !read;
+    });
+    if (existingCheckup) return;
+
     final ref = _col.doc();
     await ref.set({
       'userId': userId,
       'type': 'checkup',
       'message': "You haven't had a checkup in $daysSinceCheckup days. Schedule a visit with your doctor.",
       'read': false,
-      'createdAt': Timestamp.fromDate(DateTime.now()),
+      'createdAt': Timestamp.fromDate(now),
     });
   }
 
