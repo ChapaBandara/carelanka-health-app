@@ -206,6 +206,7 @@ class ReminderService {
         'scheduledTime': scheduledAt,
         'actualResponseTime': actualResponseTime,
         'snoozeUntil': snoozeUntil,
+        'wasSnoozed': d['wasSnoozed'] as bool? ?? (snoozeUntil != null),
         'status': status,
       });
     }
@@ -497,8 +498,12 @@ class ReminderService {
     DateTime? snoozeUntil,
     String? existingLogId,
     String medicationDosage = '',
+    bool wasSnoozed = false,
   }) async {
-    final payload = {
+    final isSnoozedStatus = status.toLowerCase() == 'snoozed';
+    final effectiveWasSnoozed = wasSnoozed || isSnoozedStatus || snoozeUntil != null;
+
+    final payload = <String, dynamic>{
       'userId': userId,
       'medicationId': medicationId,
       'medicationName': medicationName,
@@ -509,6 +514,7 @@ class ReminderService {
       'status': status,
       'responseLatencyMinutes': responseLatencyMinutes,
       'createdAt': Timestamp.fromDate(DateTime.now()),
+      if (effectiveWasSnoozed) 'wasSnoozed': true,
       if (snoozeUntil != null) 'snoozeUntil': Timestamp.fromDate(snoozeUntil),
     };
 
@@ -534,6 +540,13 @@ class ReminderService {
         }).toList();
 
         if (matches.isNotEmpty) {
+          final existingData = matches.first.data();
+          if (existingData['wasSnoozed'] == true || existingData['snoozeUntil'] != null) {
+            payload['wasSnoozed'] = true;
+            if (existingData['snoozeUntil'] != null && payload['snoozeUntil'] == null) {
+              payload['snoozeUntil'] = existingData['snoozeUntil'];
+            }
+          }
           await _col.doc(matches.first.id).set(payload, SetOptions(merge: true));
         } else {
           await _col.add(payload);
@@ -901,6 +914,7 @@ class ReminderService {
               .toDouble(),
         },
         'status': status,
+        if (status.toLowerCase() == 'snoozed') 'wasSnoozed': true,
         'createdAt': Timestamp.fromDate(DateTime.now()),
       });
       final lowerStatus = status.toLowerCase();

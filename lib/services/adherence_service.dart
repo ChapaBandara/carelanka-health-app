@@ -40,12 +40,13 @@ class AdherenceService {
       final total = snap.docs.length;
       if (total == 0) return 100.0;
 
-      final confirmed = snap.docs.where((doc) {
+      final rawConfirmed = snap.docs.where((doc) {
         final status = (doc.data()['status'] as String? ?? '').toLowerCase();
         return status == 'confirmed' || status == 'taken';
       }).length;
+      final confirmed = rawConfirmed.clamp(0, total);
 
-      return (confirmed / total) * 100;
+      return ((confirmed / total) * 100).clamp(0.0, 100.0);
     } catch (_) {
       return 100.0;
     }
@@ -71,13 +72,15 @@ class AdherenceService {
       final total = snap.docs.length;
       if (total == 0) return const AdherenceResult(score: 100.0, confirmed: 0, total: 0);
 
-      final confirmed = snap.docs.where((doc) {
+      final rawConfirmed = snap.docs.where((doc) {
         final status = (doc.data()['status'] as String? ?? '').toLowerCase();
         return status == 'confirmed' || status == 'taken';
       }).length;
+      final confirmed = rawConfirmed.clamp(0, total);
+      final score = ((confirmed / total) * 100).clamp(0.0, 100.0);
 
       return AdherenceResult(
-        score: (confirmed / total) * 100,
+        score: score,
         confirmed: confirmed,
         total: total,
       );
@@ -138,12 +141,14 @@ class AdherenceService {
         }
 
         final total = best.length;
-        final confirmed = best.values.where((s) {
+        final rawConfirmed = best.values.where((s) {
           return s == 'confirmed' || s == 'taken';
         }).length;
+        final confirmed = rawConfirmed.clamp(0, total);
+        final score = ((confirmed / total) * 100).clamp(0.0, 100.0);
 
         return AdherenceResult(
-          score: (confirmed / total) * 100,
+          score: score,
           confirmed: confirmed,
           total: total,
         );

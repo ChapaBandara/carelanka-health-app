@@ -95,6 +95,11 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
     var status = (d['status'] as String? ?? 'confirmed').toLowerCase();
     if (status == 'taken') status = 'confirmed';
 
+    final snoozeUntil = d['snoozeUntil'] is Timestamp
+        ? (d['snoozeUntil'] as Timestamp).toDate()
+        : null;
+    final wasSnoozed = d['wasSnoozed'] as bool? ?? (snoozeUntil != null);
+
     return {
       'logId': doc.id,
       'medicationId': d['medicationId'] as String? ?? '',
@@ -108,10 +113,9 @@ class _ReminderHistoryScreenState extends State<ReminderHistoryScreen>
       'scheduledAt': scheduledAt,
       'actualAt': actualAt,
       'status': status,
+      'wasSnoozed': wasSnoozed,
       'responseLatencyMinutes': d['responseLatencyMinutes'] as int? ?? 0,
-      'snoozeUntil': d['snoozeUntil'] is Timestamp
-          ? (d['snoozeUntil'] as Timestamp).toDate()
-          : null,
+      'snoozeUntil': snoozeUntil,
     };
   }
 
@@ -309,10 +313,26 @@ class _FirestoreLogTab extends StatelessWidget {
             .where(matchesSearch)
             .toList();
 
-        // Deduplicate: for the same medicationId + scheduled hour + minute,
-        // keep only the highest-priority entry.
-        // Priority (lower int = higher priority):
-        //   confirmed=0 > snoozed=1 > skipped=2 > missed=3 > pending=4
+        // 1. Filter items by tab criteria FIRST
+        var tabItems = allItems;
+        if (filterStatus != null) {
+          tabItems = allItems.where((item) {
+            final st = (item['status'] as String? ?? '').toLowerCase();
+            final wasSnoozed = (item['wasSnoozed'] as bool? ?? false) || item['snoozeUntil'] != null;
+
+            if (filterStatus == 'confirmed') {
+              return st == 'confirmed' || st == 'taken';
+            } else if (filterStatus == 'snoozed') {
+              return st == 'snoozed' || wasSnoozed;
+            } else if (filterStatus == 'missed') {
+              return st == 'missed';
+            }
+            return st == filterStatus;
+          }).toList();
+        }
+
+        // 2. Deduplicate: for the same medicationId + scheduled hour + minute,
+        // keep only the highest-priority entry for this tab.
         int statusPriority(String s) {
           switch (s) {
             case 'confirmed':
@@ -330,12 +350,15 @@ class _FirestoreLogTab extends StatelessWidget {
         }
 
         final bestItems = <String, Map<String, dynamic>>{};
-        for (final item in allItems) {
+        for (final item in tabItems) {
+          final logId = item['logId'] as String? ?? '';
           final medId = item['medicationId'] as String? ?? '';
           final scheduledAt = item['scheduledAt'] as DateTime?;
-          final key = scheduledAt != null
-              ? '${medId}_${scheduledAt.hour}_${scheduledAt.minute}'
-              : medId;
+          final key = (filterStatus == null && logId.isNotEmpty)
+              ? logId
+              : (scheduledAt != null
+                  ? '${medId}_${scheduledAt.hour}_${scheduledAt.minute}'
+                  : medId);
           final status = item['status'] as String? ?? 'pending';
           if (!bestItems.containsKey(key) ||
               statusPriority(status) <
@@ -353,14 +376,6 @@ class _FirestoreLogTab extends StatelessWidget {
             return bT.compareTo(aT);
           });
 
-        if (filterStatus != null) {
-          items = items.where((item) {
-            final st = (item['status'] as String? ?? '').toLowerCase();
-            if (filterStatus == 'confirmed') return st == 'confirmed' || st == 'taken';
-            return st == filterStatus;
-          }).toList();
-        }
-
         if (items.isEmpty) {
           return EmptyListPlaceholder(
             icon: emptyIcon,
@@ -369,7 +384,7 @@ class _FirestoreLogTab extends StatelessWidget {
           );
         }
 
-        return _GroupedLogList(items: items);
+        return _GroupedLogList(items: items, filterStatus: filterStatus);
       },
     );
   }
@@ -380,9 +395,10 @@ class _FirestoreLogTab extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _GroupedLogList extends StatelessWidget {
-  const _GroupedLogList({required this.items});
+  const _GroupedLogList({required this.items, this.filterStatus});
 
   final List<Map<String, dynamic>> items;
+  final String? filterStatus;
 
   String _dateGroupFor(DateTime scheduledAt) {
     final now = DateTime.now();
@@ -436,7 +452,7 @@ class _GroupedLogList extends StatelessWidget {
             ...groupItems.map(
               (item) => Padding(
                 padding: const EdgeInsets.only(bottom: 12),
-                child: _ReminderLogCard(data: item),
+                child: _ReminderLogCard(data: item, filterStatus: filterStatus),
               ),
             ),
           ],
@@ -451,14 +467,15 @@ class _GroupedLogList extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _ReminderLogCard extends StatelessWidget {
-  const _ReminderLogCard({required this.data});
+  const _ReminderLogCard({required this.data, this.filterStatus});
 
   final Map<String, dynamic> data;
+  final String? filterStatus;
 
   @override
   Widget build(BuildContext context) {
     final status = data['status'] as String? ?? 'confirmed';
-    final style = _statusStyle(status);
+    final wasSnoozed = (data['wasSnoozed'] as bool? ?? false) || data['snoozeUntil'] != null;
     final medicationName = data['medicationName'] as String? ?? 'Medication';
     final medicationDosage = data['medicationDosage'] as String? ?? '';
     final scheduledAt = data['scheduledAt'] as DateTime?;
@@ -470,7 +487,10 @@ class _ReminderLogCard extends StatelessWidget {
     final actualLabel =
         actualAt != null ? DateFormat.jm().format(actualAt) : null;
 
-    final badge = _badgeText(status, latency, actualLabel);
+    final displayStatus = (filterStatus == 'snoozed' && wasSnoozed) ? 'snoozed' : status;
+    final style = _statusStyle(displayStatus);
+
+    final badge = _badgeText(status, latency, actualLabel, wasSnoozed);
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -566,7 +586,13 @@ class _ReminderLogCard extends StatelessWidget {
     );
   }
 
-  String _badgeText(String status, int latency, String? actualLabel) {
+  String _badgeText(String status, int latency, String? actualLabel, bool wasSnoozed) {
+    if (filterStatus == 'snoozed') {
+      if (status == 'confirmed' || status == 'taken') {
+        return 'Snoozed (Taken)';
+      }
+      return 'Snoozed';
+    }
     switch (status) {
       case 'missed':
         return 'No response';
@@ -577,6 +603,9 @@ class _ReminderLogCard extends StatelessWidget {
       case 'pending':
         return 'Pending';
       case 'confirmed':
+        if (wasSnoozed) {
+          return latency > 0 ? '+$latency min (Snoozed)' : 'Snoozed (Taken)';
+        }
         if (latency > 0) return '+$latency min';
         return 'On time';
       default:

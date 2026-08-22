@@ -422,16 +422,19 @@ class ReportService {
       }
 
       final total = confirmed + missed + skipped;
-      final score = total > 0 ? (confirmed / total) * 100 : 100.0;
+      final rawScore = total > 0 ? (confirmed / total) * 100 : 100.0;
+      final score = rawScore.clamp(0.0, 100.0);
       final insight = AdherenceService().generateInsightText(score);
 
       final breakdown = groups.entries.map((e) {
         final b = e.value;
-        final s = b.total > 0 ? (b.confirmed / b.total) * 100 : 100.0;
+        final rawS = b.total > 0 ? (b.confirmed / b.total) * 100 : 100.0;
+        final s = rawS.clamp(0.0, 100.0);
+        final effectiveConfirmed = b.confirmed.clamp(0, b.total);
         return DailyBreakdown(
           date: b.date,
           score: s,
-          confirmed: b.confirmed,
+          confirmed: effectiveConfirmed,
           total: b.total,
         );
       }).toList()

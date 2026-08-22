@@ -198,6 +198,7 @@ class TakingMedicationScreen extends StatelessWidget {
       status: 'snoozed',
       snoozeUntil: snoozeUntil,
       existingLogId: dose.logId,
+      wasSnoozed: true,
     );
     if (!context.mounted) return;
     Navigator.pushReplacementNamed(

@@ -735,9 +735,12 @@ class _DashboardScreenState extends State<DashboardScreen> with RouteAware {
     AdherenceResult? adherence,
   }) {
     // Today's dose progress drives the pie chart fill.
-    final todayPercent = totalDoses == 0 ? 0 : ((takenDoses / totalDoses) * 100).round();
-    final remaining = (totalDoses - takenDoses).clamp(0, totalDoses).toDouble();
-    final takenValue = takenDoses.toDouble();
+    final effectiveTaken = totalDoses == 0 ? takenDoses : takenDoses.clamp(0, totalDoses);
+    final todayPercent = totalDoses == 0
+        ? 0
+        : ((effectiveTaken / totalDoses) * 100).round().clamp(0, 100);
+    final remaining = (totalDoses - effectiveTaken).clamp(0, totalDoses).toDouble();
+    final takenValue = effectiveTaken.toDouble();
     final chartSections = totalDoses == 0
         ? [
             PieChartSectionData(value: 1, radius: 14, showTitle: false, color: const Color(0xFFE6E6E6)),
@@ -750,8 +753,11 @@ class _DashboardScreenState extends State<DashboardScreen> with RouteAware {
           ];
 
     // 7-day adherence label — shown when data is available.
+    final adherenceConfirmed = adherence != null && adherence.total > 0
+        ? adherence.confirmed.clamp(0, adherence.total)
+        : 0;
     final adherenceLabel = adherence != null && adherence.total > 0
-        ? '${adherence.confirmed} of ${adherence.total} confirmed (7d)'
+        ? '$adherenceConfirmed of ${adherence.total} confirmed (7d)'
         : '$activeMedicationCount active medication${activeMedicationCount == 1 ? '' : 's'}';
 
     return Container(
@@ -772,7 +778,7 @@ class _DashboardScreenState extends State<DashboardScreen> with RouteAware {
                 const Text("Today's Overview", style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
                 const SizedBox(height: 6),
                 Text(
-                  '$takenDoses of $totalDoses doses taken',
+                  '$effectiveTaken of $totalDoses doses taken',
                   style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 6),

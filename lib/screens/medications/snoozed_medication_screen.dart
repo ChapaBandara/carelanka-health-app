@@ -176,6 +176,7 @@ class _SnoozedMedicationScreenState extends State<SnoozedMedicationScreen> {
                           responseLatencyMinutes: latency,
                           existingLogId: existingLogId,
                           medicationDosage: dosage,
+                          wasSnoozed: true,
                         );
 
                         await AdherenceService().decrementStock(medicationId, userId);
