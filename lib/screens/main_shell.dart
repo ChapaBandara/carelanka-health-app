@@ -313,30 +313,11 @@ class _MainShellState extends State<MainShell> {
         final data = doc.data();
         final appointmentId = doc.id;
 
-        final dateRaw = data['date'];
-        final timeRaw = data['time'];
-        if (dateRaw == null || timeRaw == null) continue;
+        // Appointments are stored with a single 'dateTime' Timestamp field.
+        final dtField = data['dateTime'];
+        if (dtField is! Timestamp) continue;
 
-        DateTime appointmentDateTime;
-        try {
-          final date = (dateRaw as Timestamp).toDate();
-          final timeStr = timeRaw.toString().trim();
-          final match = RegExp(
-            r'(\d{1,2}):(\d{2})\s*(AM|PM)?',
-            caseSensitive: false,
-          ).firstMatch(timeStr);
-          if (match == null) continue;
-          var hour = int.parse(match.group(1)!);
-          final minute = int.parse(match.group(2)!);
-          final ampm = match.group(3)?.toUpperCase();
-          if (ampm == 'PM' && hour < 12) hour += 12;
-          if (ampm == 'AM' && hour == 12) hour = 0;
-          appointmentDateTime = DateTime(
-              date.year, date.month, date.day, hour, minute);
-        } catch (_) {
-          continue;
-        }
-
+        final appointmentDateTime = dtField.toDate();
         final doctor = data['doctorName'] as String? ?? 'Doctor';
         final doctorName = scope.isSelf ? doctor : '${scope.patientName}: $doctor';
 
@@ -352,7 +333,7 @@ class _MainShellState extends State<MainShell> {
 
           _shownAppointmentsThisSession.add(sessionKey);
 
-          final venue = data['venue'] as String? ?? 'Hospital';
+          final venue = data['hospital'] as String? ?? data['venue'] as String? ?? 'Hospital';
           final offsetText = offsetMinutes == 120
               ? '2 hours'
               : offsetMinutes == 60
@@ -380,13 +361,14 @@ class _MainShellState extends State<MainShell> {
 
           await NotificationService.instance.showAppointmentReminder(
             doctorName: doctorName,
-            venue: data['venue'] as String? ?? 'Hospital',
+            venue: data['hospital'] as String? ?? data['venue'] as String? ?? 'Hospital',
             timeUntil: 'tomorrow',
           );
         }
       }
     }
   }
+
 
   Future<void> _checkDayBeforeAppointments() async {
     if (!mounted) return;

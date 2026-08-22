@@ -36,6 +36,8 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> with RouteAware {
   bool _checkupOverdue = false;
   int _daysSinceVisit = 0;
+  // When non-null, the checkup banner is snoozed until this date (calendar day).
+  DateTime? _checkupSnoozedUntil;
   // Guard: only reschedule notifications once per widget lifetime.
   bool _notificationsScheduled = false;
   // Incremented after returning from any push route so the FutureBuilder
@@ -130,10 +132,21 @@ class _DashboardScreenState extends State<DashboardScreen> with RouteAware {
         final service = CheckupService();
         final overdue = await service.isCheckupOverdue(uid);
         final days = await service.getDaysSinceLastVisit(uid);
+
+        // Check if the user snoozed the banner today.
+        final prefs = await SharedPreferences.getInstance();
+        final snoozeKey = 'checkup_snooze_until_$uid';
+        final snoozeMs = prefs.getInt(snoozeKey);
+        DateTime? snoozedUntil;
+        if (snoozeMs != null) {
+          snoozedUntil = DateTime.fromMillisecondsSinceEpoch(snoozeMs);
+        }
+
         if (mounted) {
           setState(() {
             _checkupOverdue = overdue;
             _daysSinceVisit = days;
+            _checkupSnoozedUntil = snoozedUntil;
           });
         }
       } catch (_) {}
@@ -353,7 +366,7 @@ class _DashboardScreenState extends State<DashboardScreen> with RouteAware {
                   ),
                 ] else ...[
                   const SizedBox(height: 20),
-                  if (_checkupOverdue) ...[_checkupBanner(context), const SizedBox(height: 14)],
+                  if (_checkupOverdue && !_isCheckupSnoozedToday) ...[_checkupBanner(context), const SizedBox(height: 14)],
                   _medicationOverviewSection(context),
                   const SizedBox(height: 22),
                   const Text('Quick actions', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
@@ -384,6 +397,38 @@ class _DashboardScreenState extends State<DashboardScreen> with RouteAware {
     );
   }
 
+  /// Returns true if the user already snoozed the checkup banner today.
+  bool get _isCheckupSnoozedToday {
+    if (_checkupSnoozedUntil == null) return false;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final snoozedDay = DateTime(
+      _checkupSnoozedUntil!.year,
+      _checkupSnoozedUntil!.month,
+      _checkupSnoozedUntil!.day,
+    );
+    // Snoozed if the snooze target is today or a future date.
+    return !snoozedDay.isBefore(today);
+  }
+
+  /// Snoozes the checkup banner until tomorrow midnight.
+  Future<void> _snoozeCheckupBanner() async {
+    try {
+      final uid = context.activeScopeId;
+      final now = DateTime.now();
+      // Snooze until tomorrow 00:00.
+      final tomorrow = DateTime(now.year, now.month, now.day + 1);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(
+        'checkup_snooze_until_$uid',
+        tomorrow.millisecondsSinceEpoch,
+      );
+      if (mounted) {
+        setState(() => _checkupSnoozedUntil = tomorrow);
+      }
+    } catch (_) {}
+  }
+
   Widget _checkupBanner(BuildContext context) {
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -392,42 +437,73 @@ class _DashboardScreenState extends State<DashboardScreen> with RouteAware {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFFFFD54F)),
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.only(top: 2),
-            child: Icon(Icons.health_and_safety_outlined, color: Color(0xFFF9A825), size: 22),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Checkup Overdue',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Color(0xFF5D4037)),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 2),
+                child: Icon(Icons.health_and_safety_outlined, color: Color(0xFFF9A825), size: 22),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Checkup Overdue',
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Color(0xFF5D4037)),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      "You haven't had a checkup in $_daysSinceVisit day${_daysSinceVisit == 1 ? '' : 's'}.",
+                      style: const TextStyle(color: Color(0xFF795548), fontSize: 13, height: 1.4),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  "You haven't had a checkup in $_daysSinceVisit day${_daysSinceVisit == 1 ? '' : 's'}.",
-                  style: const TextStyle(color: Color(0xFF795548), fontSize: 13, height: 1.4),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          TextButton(
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              backgroundColor: const Color(0xFFFDD835),
-              foregroundColor: const Color(0xFF5D4037),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            onPressed: () => Navigator.pushNamed(context, AppRoutes.appointments),
-            child: const Text('Schedule Now', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              // Remind Me Later — snoozes banner until tomorrow
+              Expanded(
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    side: const BorderSide(color: Color(0xFFFFD54F), width: 1.5),
+                    foregroundColor: const Color(0xFF795548),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: _snoozeCheckupBanner,
+                  child: const Text(
+                    'Remind Me Tomorrow',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Schedule Now — opens appointments
+              Expanded(
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    backgroundColor: const Color(0xFFFDD835),
+                    foregroundColor: const Color(0xFF5D4037),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () => Navigator.pushNamed(context, AppRoutes.appointments),
+                  child: const Text(
+                    'Schedule Now',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -909,7 +985,9 @@ class _DashboardScreenState extends State<DashboardScreen> with RouteAware {
     return StreamBuilder<List<Map<String, String>>>(
       stream: AppointmentService().watchAppointmentMaps(userId),
       builder: (context, snapshot) {
-        final upcoming = (snapshot.data ?? []).where((a) => a['period'] != 'past').toList();
+        final upcoming = (snapshot.data ?? [])
+            .where((a) => a['period'] != 'past' && a['status'] != 'completed')
+            .toList();
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,

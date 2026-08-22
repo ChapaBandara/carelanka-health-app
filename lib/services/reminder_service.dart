@@ -582,8 +582,13 @@ class ReminderService {
   }
 
   /// Stream of today's reminder logs for [userId] filtered by [status].
-  /// Uses a scheduledTime range filter (no orderBy) to avoid
-  /// requiring a composite Firestore index.
+  ///
+  /// NOTE: Firestore does not allow adding a second equality filter on `status`
+  /// alongside a range filter on `scheduledTime` without a composite index.
+  /// Status filtering is therefore applied in the UI layer (_FirestoreLogTab)
+  /// rather than here. This query intentionally returns all today's logs and
+  /// lets the caller filter client-side — this is safe because only today's
+  /// docs are ever returned (bounded by scheduledTime range).
   Stream<QuerySnapshot<Map<String, dynamic>>> watchReminderLogsByStatus(
     String userId,
     String status,
