@@ -9,13 +9,19 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 
+/// Cold-start period before adaptive reminder logic activates.
+/// Production default: 7 days (full behavioural baseline).
+/// Pilot evaluation: 3 days (supervisor-approved, see Chapter 6.2).
+/// Change this value back to 7 before production deployment.
+const int kAdaptiveColdStartDays = 3;
+
 class ReminderService {
   ReminderService({FirebaseFirestore? firestore}) : _firestore = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _firestore;
 
   CollectionReference<Map<String, dynamic>> get _col =>
-      _firestore.collection(FirebaseCollections.reminderLogs);
+      _firestore.collection(FirebaseCollections.reminderLogs);f// Skip medications that are less than 7 days old.
 
   Stream<List<Map<String, String>>> watchReminderMaps(String userId) {
     return _col.where('userId', isEqualTo: userId).snapshots().map(
@@ -313,7 +319,7 @@ class ReminderService {
 
     final actual = d['actualResponseTime'];
     String actionTime = '—';
-    if (actual is Timestamp) {
+    if (actual is Timestamp) {// Skip medications that are less than 3 days old.
       actionTime = DateFormat.jm().format(actual.toDate());
     }
 
@@ -704,6 +710,39 @@ class ReminderService {
   /// Should be called once per dashboard load. Runs silently — all errors are
   /// caught internally and never surfaced to the user.
   Future<void> runAdaptiveLogic(String userId) async {
+    // Read volunteer group assignment from Firestore.
+    // Group A = 'adaptive' (AI reminders active after cold-start)
+    // Group B = 'static'  (fixed reminders only, control group)
+    // IMPORTANT: Default is 'static' — if field is missing,
+    // volunteer stays on fixed reminders. This protects the
+    // control group from accidental contamination.
+    try {
+      final userDoc = await _firestore
+          .collection('users')
+          .doc(userId)
+          .get();
+
+      final reminderMode =
+          userDoc.data()?['reminderMode'] as String?
+          ?? 'static'; // safe default — never adaptive by accident
+
+      if (reminderMode == 'static') {
+        if (kDebugMode) {
+          debugPrint('ℹ️ Static mode — adaptive logic skipped: $userId');
+        }
+        return;
+      }
+
+      if (kDebugMode) {
+        debugPrint('🤖 Adaptive mode active for: $userId');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('⚠️ Could not read reminderMode, defaulting to static: $e');
+      }
+      return; // fail safe — if cannot read, treat as static
+    }
+
     try {
       // 1. Fetch all active medications for this user.
       final snap = await _firestore
@@ -723,9 +762,8 @@ class ReminderService {
           final dosage = data['dosage'] as String? ?? '';
           final mealTiming = data['mealTiming'] as String? ?? 'anytime';
           final illnessName = await _getIllnessName(illnessId);
-
-          // ── COLD START CHECK ────────────────────────────────────────────
-          // Skip medications that are less than 7 days old.
+// ── COLD START CHECK ────────────────────────────────────────────
+// Skips medications younger than kAdaptiveColdStartDays (see constant above).
           final createdAtRaw = data['createdAt'];
           DateTime createdAt;
           if (createdAtRaw is Timestamp) {
@@ -736,7 +774,10 @@ class ReminderService {
             createdAt = DateTime.now();
           }
 
-          if (DateTime.now().difference(createdAt).inDays < 7) continue;
+          if (DateTime.now().difference(createdAt).inDays <
+              kAdaptiveColdStartDays) {
+            continue;
+          }
 
           // ── CALCULATE SCORE ─────────────────────────────────────────────
           final score =
