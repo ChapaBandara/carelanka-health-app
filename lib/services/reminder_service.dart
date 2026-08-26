@@ -21,7 +21,7 @@ class ReminderService {
   final FirebaseFirestore _firestore;
 
   CollectionReference<Map<String, dynamic>> get _col =>
-      _firestore.collection(FirebaseCollections.reminderLogs);f// Skip medications that are less than 7 days old.
+      _firestore.collection(FirebaseCollections.reminderLogs);
 
   Stream<List<Map<String, String>>> watchReminderMaps(String userId) {
     return _col.where('userId', isEqualTo: userId).snapshots().map(
@@ -319,7 +319,7 @@ class ReminderService {
 
     final actual = d['actualResponseTime'];
     String actionTime = '—';
-    if (actual is Timestamp) {// Skip medications that are less than 3 days old.
+    if (actual is Timestamp) {
       actionTime = DateFormat.jm().format(actual.toDate());
     }
 
