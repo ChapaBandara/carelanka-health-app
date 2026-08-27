@@ -911,7 +911,7 @@ class ReminderService {
   ///
   /// Handles midnight wrap-around. Example: `adjustTime("08:00", 25.0)`
   /// returns `"07:35"`.
-  String adjustTime(String timeStr, double delayMinutes) {
+static String adjustTime(String timeStr, double delayMinutes) {
     final parts = timeStr.trim().split(':');
     if (parts.length != 2) return timeStr;
     final hours = int.tryParse(parts[0]) ?? 0;
