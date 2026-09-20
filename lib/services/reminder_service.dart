@@ -911,21 +911,27 @@ class ReminderService {
   ///
   /// Handles midnight wrap-around. Example: `adjustTime("08:00", 25.0)`
   /// returns `"07:35"`.
+
 static String adjustTime(String timeStr, double delayMinutes) {
-    final parts = timeStr.trim().split(':');
-    if (parts.length != 2) return timeStr;
-    final hours = int.tryParse(parts[0]) ?? 0;
-    final minutes = int.tryParse(parts[1]) ?? 0;
+  final lower = timeStr.toLowerCase().trim();
+  final match = RegExp(r'(\d{1,2}):(\d{2})\s*(am|pm)?').firstMatch(lower);
+  if (match == null) return timeStr;
 
-    final totalMins = hours * 60 + minutes;
-    var newTotalMins = totalMins - delayMinutes.round();
-    if (newTotalMins < 0) newTotalMins += 1440; // wrap 24 h
+  var hours = int.tryParse(match.group(1)!) ?? 0;
+  final minutes = int.tryParse(match.group(2)!) ?? 0;
+  final ampm = match.group(3);
 
-    final newHours = newTotalMins ~/ 60;
-    final newMins = newTotalMins % 60;
-    return '${newHours.toString().padLeft(2, '0')}:${newMins.toString().padLeft(2, '0')}';
-  }
+  if (ampm == 'pm' && hours < 12) hours += 12;
+  if (ampm == 'am' && hours == 12) hours = 0;
 
+  final totalMins = hours * 60 + minutes;
+  var newTotalMins = totalMins - delayMinutes.round();
+  if (newTotalMins < 0) newTotalMins += 1440; // wrap 24 h
+
+  final newHours = newTotalMins ~/ 60;
+  final newMins = newTotalMins % 60;
+  return '${newHours.toString().padLeft(2, '0')}:${newMins.toString().padLeft(2, '0')}';
+}
   // ---------------------------------------------------------------------------
   // Missed dose detection
   // ---------------------------------------------------------------------------
